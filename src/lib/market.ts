@@ -48,6 +48,7 @@ async function call<T>(base: string, path: string, body?: unknown, timeoutMs = 6
 
 export const agentApi = {
   info: (base: string, timeoutMs = 5_000) => call<AgentInfo>(base, '/info', undefined, timeoutMs),
+  checkCode: (base: string, code: string) => call<{ ok: boolean }>(base, '/check-code', { code }, 10_000),
   activate: (base: string, signature: string, code: string) => call<AgentInfo>(base, '/activate', { signature, code }),
   reserve: (base: string, renter: string) =>
     call<{ reservationId: string; expiresAt: number; payout: string; lamportsPerMinute: number }>(base, '/reserve', { renter }),

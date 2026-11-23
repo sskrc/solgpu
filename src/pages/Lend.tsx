@@ -17,6 +17,7 @@ import type { Wallet } from '../lib/useWallet'
 export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; code: string }) {
   const [info, setInfo] = useState<AgentInfo | null>(null)
   const [infoError, setInfoError] = useState('')
+  const [codeError, setCodeError] = useState('')
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
 
   useEffect(() => {
@@ -26,16 +27,25 @@ export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; c
       .info(agent)
       .then((i) => alive && setInfo(i))
       .catch((e) => alive && setInfoError(toFriendlyError(e).message))
+    // リンクのコードが今のエージェントのものか、ページを開いた時点で確認
+    if (code)
+      agentApi
+        .checkCode(agent, code)
+        .then(() => alive && setCodeError(''))
+        .catch((e) => alive && setCodeError((e as Error).message))
     return () => {
       alive = false
     }
-  }, [agent])
+  }, [agent, code])
 
   const busy = status.kind === 'busy'
 
   const list = async () => {
     if (!wallet.phantom || !wallet.publicKey || !info) return
     try {
+      // 手数料を払う前に、リンクが最新か確認（古いリンクで署名してしまうのを防ぐ）
+      setStatus({ kind: 'busy', message: '出品リンクを確認しています…' })
+      await agentApi.checkCode(agent, code)
       // 目印アドレス (REGISTRY) に 0 SOL 送るトランザクションにメモを付ける → 誰でも出品一覧として読める
       const codeHash = await sha256Hex(code)
       const signature = await signAndSend(
@@ -128,10 +138,11 @@ export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; c
               {!wallet.publicKey ? (
                 <p className="muted center">右上から Phantom を接続してください（このウォレットが受取先になります）。</p>
               ) : (
-                <button className="btn primary big" onClick={list} disabled={busy || !code}>
+                <button className="btn primary big" onClick={list} disabled={busy || !code || !!codeError}>
                   {busy ? '処理中…' : 'このウォレットで出品する'}
                 </button>
               )}
+              {codeError && <p className="err-text">⚠️ {codeError}</p>}
               {!code && <p className="err-text small">リンクに認証コードがありません。エージェントに表示されたリンクを開いてください。</p>}
               <p className="muted small center">出品には少額の手数料（約 0.000005 SOL）がかかります。</p>
             </>

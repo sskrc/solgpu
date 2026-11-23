@@ -424,6 +424,16 @@ class Agent:
         log(f"出品が有効になりました。受取ウォレット: {self.state['payout']}")
         return self.info()
 
+    # ----- 出品リンクのコードが正しいかを、署名（手数料）の前に確認する
+    def check_code(self, body: dict) -> dict:
+        if not secrets.compare_digest(str(body.get("code", "")), self.activation_code):
+            raise PermissionError(
+                "この出品リンクは古いか、別のエージェントのものです。エージェントの画面に表示されている最新のリンクを開いてください"
+            )
+        if self.activation_used:
+            raise PermissionError("この出品リンクは使用済みです。出品し直すにはエージェントを再起動してください")
+        return {"ok": True}
+
     # ----- 予約
     def reserve(self, body: dict) -> dict:
         if not self.state.get("payout"):
@@ -627,6 +637,7 @@ def make_handler(agent: Agent):
         def do_POST(self):
             routes = {
                 "/activate": agent.activate,
+                "/check-code": agent.check_code,
                 "/reserve": agent.reserve,
                 "/claim": agent.claim,
                 "/session": agent.session_status,
@@ -662,6 +673,7 @@ def main():
     p.add_argument("--no-tunnel", action="store_true", help="インターネットに公開せず、この PC 内だけで動かす")
     p.add_argument("--i-understand-the-risk", action="store_true", help="外部公開のリスクを理解したうえで公開する")
     p.add_argument("--rebench", action="store_true", help="ベンチマークをやり直す")
+    p.add_argument("--no-browser", action="store_true", help="出品リンクをブラウザで自動的に開かない")
     p.add_argument("--rpc", default=DEVNET_RPC)
     args = p.parse_args()
 
@@ -701,8 +713,13 @@ def main():
         print(f"   エージェント: {agent.public_url}")
         print("\n 次のリンクを Phantom を入れたブラウザで開き、「出品する」を押してください:")
         print(f"   {link}")
+        print("   （ブラウザで自動的に開きます。古いリンクは使えません）")
         print("\n 停止するには Ctrl + C")
         print("=" * 70 + "\n", flush=True)
+        if not args.no_browser:
+            import webbrowser
+
+            webbrowser.open(link)
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
