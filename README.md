@@ -1,11 +1,12 @@
-# Sorana — みんなの GPU を SOL で貸し借り（Solana Devnet デモ）
+# Amari — みんなの GPU を SOL で貸し借り（Solana Devnet・エスクロー付き）
 
 AI 需要で GPU が足りない一方、個人の PC の GPU は多くの時間あまっています。
-Sorana は **誰でも自分の GPU を出品でき、誰でも分単位で借りられる** GPU マーケットプレイスです。支払いは Solana で、借り手から貸し手へ直接送られます。
+Amari は **誰でも自分の GPU を出品でき、誰でも分単位で借りられる** GPU マーケットプレイスです。
+出品とレンタルは **Anchor で書いた Solana プログラム** が管理し、代金は **エスクロー** で守られます。
 
 - 貸し手: エージェントを起動 → **ベンチマークで性能を測定し価格を自動決定** → Phantom で出品
-- 借り手: 一覧から GPU を選ぶ → 分数を指定 → Phantom で支払い → **ブラウザの Jupyter Lab でその GPU が使える**
-- 時間になると環境は自動停止
+- 借り手: 一覧から GPU を選ぶ → 分数を指定 → 代金をエスクローに預ける → **ブラウザの Jupyter Lab でその GPU が使える**
+- 終了後、代金はプログラムが貸し手に支払う。貸し手が開始しなければ **全額返金**
 
 > ⚠️ **Devnet（テスト用ネットワーク）専用** です。本物の SOL は動きません。
 
@@ -14,22 +15,45 @@ Sorana は **誰でも自分の GPU を出品でき、誰でも分単位で借�
 ## 仕組み
 
 ```
- 貸し手の PC                                Solana Devnet                    借り手のブラウザ
-┌────────────────────┐                ┌──────────────────┐          ┌──────────────────────┐
-│ Sorana エージェント │ ── 出品メモ ──▶ │  出品一覧（メモ） │ ◀─ 読む ─ │ Sorana Web アプリ     │
-│  ・ベンチマーク      │  (Phantomで署名) │                  │          │ (GitHub Pages)       │
-│  ・支払いの確認      │ ◀─ 支払いを読む ─│  借り手→貸し手    │ ◀─ 送金 ─ │  Phantom で支払い     │
-│  ・Jupyter 起動/停止 │                └──────────────────┘          │                      │
-│                    │ ◀──────── 予約 / 利用開始 (HTTPS, Cloudflare Tunnel) ────────│                      │
-│  Jupyter Lab + GPU │ ◀──────────────── ブラウザで GPU を使う ───────────────────│                      │
-└────────────────────┘                                                └──────────────────────┘
+ 貸し手の PC                          Amari プログラム (Solana Devnet)              借り手のブラウザ
+┌───────────────────────┐          ┌──────────────────────────────┐          ┌──────────────────┐
+│ Amari エージェント     │          │ Listing（出品）                │ ◀─ 一覧 ─ │ Amari Web アプリ │
+│  ・ベンチマーク          │          │   受取先・価格・エージェントURL  │          │ (GitHub Pages)    │
+│  ・operator 鍵          │ ─accept─▶ │ Rental（エスクロー口座）       │ ◀─ 預金 ─ │  Phantom で署名   │
+│  ・Jupyter 起動/停止     │ ─settle─▶ │   代金を預かり、終了後に貸し手へ │ ─ 返金 ─▶ │                  │
+│                       │ ◀──────── 開始依頼（秘密の値） / Jupyter の URL（HTTPS, Cloudflare Tunnel）──────── │
+└───────────────────────┘          └──────────────────────────────┘          └──────────────────┘
 ```
 
-1. **出品**: エージェントが起動時に GPU の性能を測り、価格を決め、Cloudflare Tunnel で `https://xxxx.trycloudflare.com` の URL を作ります。貸し手は表示されたリンクを開き、Phantom で「出品トランザクション」（目印アドレスへの 0 SOL 送金 + メモ）に署名します。出品一覧は **Solana 上のメモ** として保存されるので、中央のサーバーやデータベースはありません。
-2. **予約**: 借り手が GPU を選ぶと、まずエージェントに予約します（2 人が同時に支払うのを防ぐため。5 分間有効）。
-3. **支払い**: 借り手は貸し手のウォレットに直接 `分数 × 1分あたりの価格` を送金します。メモには予約 ID・分数・**借り手だけが知る秘密の値のハッシュ** が入ります。
-4. **利用開始**: 借り手のブラウザが署名と秘密の値をエージェントに送ります。エージェントは Devnet 上の取引を読み、金額・受取先・メモ・秘密の値を確認してから、専用フォルダで Jupyter Lab を起動し、URL を借り手にだけ返します。
-5. **終了**: 利用時間（Jupyter が使えるようになった時点から数える）が過ぎると、エージェントが Jupyter とその中のプログラムをすべて停止します。
+### プログラムの命令（`program/programs/sorana-market/src`）
+
+| 命令 | 誰が | 何をする |
+| --- | --- | --- |
+| `create_listing` | 貸し手 | 出品を作る（受取ウォレット・エージェントの鍵・URL・GPU 名・性能・価格） |
+| `update_agent` | 貸し手 / エージェント | エージェントの URL と受付状態を更新（エージェント起動・停止時に自動） |
+| `update_listing` | 貸し手 | 価格・性能・エージェントの鍵を変更（未精算のレンタルが無いとき） |
+| `close_listing` | 貸し手 | 出品を取り下げ、保証金を回収（未精算のレンタルが無いとき） |
+| `rent_gpu` | 借り手 | 代金（価格 × 分）を **エスクロー口座** に預ける。GPU は 5 分間「開始待ち」で確保される |
+| `accept` | エージェント | Jupyter の準備ができたら「利用開始」を記録。ここから時間を数える |
+| `settle` | 誰でも | 終了時刻を過ぎたら精算。代金は **必ず貸し手** へ、口座の保証金は借り手へ |
+| `refund` | 借り手はいつでも / 他の人は期限後 | 開始されていないレンタルを取り消し。代金は **必ず借り手** へ |
+
+### 安全のための工夫
+
+- **お金の行き先はプログラムが固定**: 精算は出品時の受取ウォレットへ、返金は借り手へ。エージェントの鍵が盗まれても代金は動かせません
+- **価格はプログラムが計算**: `価格 × 分` をオンチェーンで計算し、借り手が画面で見た価格と違えば失敗します
+- **1 台に 1 人**: 開始待ち・利用中は他の人が借りられません（`busy_until`）
+- **開始されなければ返金**: エージェントが 5 分以内に `accept` しなければ、誰でも返金を実行でき、代金は借り手に戻ります
+- **精算は誰でも実行可能**: エージェントが止まっても、終了後に借り手・貸し手のどちらでも精算ボタンを押せます
+- **本人確認**: 借り手だけが知る秘密の値のハッシュをレンタル口座に保存。エージェントは秘密の値が一致した人にだけ Jupyter の URL を渡します
+- **乗っ取り防止**: エージェントは自分の出品リンク（使い捨てコード）で作られた出品にだけ紐付き、一覧にはエージェント自身が認めた出品だけが表示されます
+
+### 正直に書いておくこと（デモの制約）
+
+- **GPU が本当に使えたかまでは証明できません**: プログラムが確認できるのは「エージェントが開始を記録した」ことまでです。開始後に貸し手が GPU を止めても、代金は貸し手に支払われます（評判システムや、利用状況の証明は今後の課題）
+- **ベンチマークは自己申告**: エージェントが測った値をそのまま使います
+- **Cloudflare Tunnel** という中央のサービスを経由しています
+- 借り手の PC からは、ブラウザに保存した秘密の値で GPU 環境を受け取ります。ブラウザのデータを消すと Jupyter は開けません（返金・精算はどのブラウザからでも可能）
 
 ### 価格の決め方
 
@@ -39,18 +63,7 @@ Sorana は **誰でも自分の GPU を出品でき、誰でも分単位で借�
 1 分あたりの価格 = 計測 TFLOPS × 0.000002 SOL（最低 0.00001 SOL / 分）
 ```
 
-例: 20 TFLOPS の GPU → 0.00004 SOL / 分（1 時間 0.0024 SOL）
-
-### 正直に書いておくこと（デモの制約）
-
-- **エスクローはありません**: 支払いは直接貸し手へ。貸し手が GPU を提供しなくても返金されません。
-- **ベンチマークは自己申告**: エージェントが測った値をそのまま使います（改ざんは可能）。
-- **Cloudflare Tunnel** という中央のサービスを経由しています。
-- 借りた記録（秘密の値）はブラウザに保存されます。ブラウザのデータを消すと、そのレンタルは使えなくなります。
-- 貸し手がエージェントを止めると、利用中・支払い済みのレンタルも終了します。
-- 利用時間が終わると、借り手が Jupyter に保存したファイルは削除されます。
-
-→ 今後の発展: Anchor プログラムでのエスクロー・オンチェーンでのベンチマーク検証・評判システムなど。
+例: Intel Arc 140T（約 13 TFLOPS）→ 約 0.000026 SOL / 分（1 時間 約 0.0016 SOL）
 
 ---
 
@@ -58,36 +71,31 @@ Sorana は **誰でも自分の GPU を出品でき、誰でも分単位で借�
 
 | パス | 内容 |
 | --- | --- |
-| `src/App.tsx` | 画面全体（タブ切り替え・ウォレット表示） |
-| `src/pages/Market.tsx` | GPU を借りる（一覧・予約・支払い） |
-| `src/pages/MyRentals.tsx` | マイレンタル（Jupyter を開く・残り時間・再試行） |
-| `src/pages/Lend.tsx` | GPU を貸す（出品） |
+| `program/` | **Anchor プログラム**（Rust）とテスト |
+| `program/programs/sorana-market/src/instructions/` | 出品・レンタル・エスクローの各命令 |
+| `program/programs/sorana-market/tests/test_market.rs` | テスト（成功の流れ・不正操作・期限切れ返金など） |
+| `program/build.sh` | ビルド・テスト・デプロイ（WSL / Linux） |
+| `src/lib/program.ts` | Web アプリからプログラムを呼ぶ部分 |
+| `src/pages/Market.tsx` | GPU を借りる |
+| `src/pages/MyRentals.tsx` | マイレンタル（Jupyter を開く・返金・精算） |
+| `src/pages/Lend.tsx` | GPU を貸す（出品・取り下げ・精算） |
 | `src/pages/Transfer.tsx` | 直接送金（アドレスと数量を指定して SOL を送る） |
-| `src/lib/solana.ts` | Solana との通信、署名と送信、エラーの日本語化 |
-| `src/lib/market.ts` | 出品一覧の読み込み、エージェントとの通信 |
-| `agent/sorana_agent.py` | 貸し手エージェント（ベンチマーク・支払い確認・Jupyter 管理） |
-| `agent/setup.bat`, `agent/start.bat` | エージェントの準備と起動（Windows） |
+| `src/astryx-themes.ts` | 画面のテーマ（[Astryx](https://www.npmjs.com/package/@astryxdesign/core) の Gothic。`npx astryx theme` が生成） |
+| `src/slides/` / `slides.html` | 発表スライド（アプリと同じ Astryx で作成）。本文は `Deck.tsx`、発表原稿は `notes.json` |
+| `scripts/export-slides.mjs` | 発表スライドを PDF / PowerPoint に書き出す（`npm run slides:export`） |
+| `agent/sorana_agent.py` | 貸し手エージェント本体 |
+| `agent/chain.py` | エージェントからプログラムを呼ぶ部分（accept / settle） |
+| `agent/runtime.py` | ベンチマーク・Jupyter・トンネル・プロセス管理 |
+| `scripts/e2e-local.ts` | ローカル validator での通しテスト |
 | `.github/workflows/deploy.yml` | GitHub Pages への自動公開 |
 
 ---
 
 ## 1. 共通の準備（最初の 1 回だけ）
 
-### 1-1. Node.js
-
-[https://nodejs.org/](https://nodejs.org/) から **LTS 版**（v22.12 以上）をインストールします。
-
-### 1-2. Phantom ウォレット
-
-1. [https://phantom.com/download](https://phantom.com/download) からブラウザ拡張機能を入れ、ウォレットを作成
-2. Phantom の「設定 → 開発者設定 → **テストネットモード**」をオンにし、**Solana Devnet** を選ぶ
-
-### 1-3. Devnet の SOL を入手
-
-[https://faucet.solana.com/](https://faucet.solana.com/) で自分のアドレスを貼り付け、**Devnet** を選んでリクエストします。
-（`solana airdrop` などの RPC 経由のエアドロップは現在 Devnet で停止されています）
-
----
+1. **Node.js**: [https://nodejs.org/](https://nodejs.org/) から LTS 版（v22.12 以上）
+2. **Phantom**: [https://phantom.com/download](https://phantom.com/download) から拡張機能を入れ、「設定 → 開発者設定 → **テストネットモード**」をオンにして **Solana Devnet** を選ぶ
+3. **Devnet の SOL**: [https://faucet.solana.com/](https://faucet.solana.com/) で自分のアドレスに Devnet SOL をもらう
 
 ## 2. Web アプリを起動する
 
@@ -105,16 +113,11 @@ npm run dev
 
 ### 3-1. 必要なもの
 
-- Python 3.10〜3.12（[python.org](https://www.python.org/downloads/)。インストール時に「Add python.exe to PATH」にチェック）
-- cloudflared（インターネット公開用）: PowerShell で
-  ```powershell
-  winget install --id Cloudflare.cloudflared -e
-  ```
-- GPU のドライバ（Intel Arc / NVIDIA は最新のドライバを推奨）
+- Python 3.10〜3.12（インストール時に「Add python.exe to PATH」にチェック）
+- cloudflared（インターネット公開用）: `winget install --id Cloudflare.cloudflared -e`
+- GPU の最新ドライバ
 
 ### 3-2. エージェントの準備（最初の 1 回だけ）
-
-PowerShell で `agent` フォルダに移動し、GPU の種類に合わせて実行します。PyTorch（数 GB）をダウンロードするので時間がかかります。
 
 ```powershell
 cd Sorana\agent
@@ -123,109 +126,113 @@ cd Sorana\agent
 # .\setup.bat cpu     # GPU なし
 ```
 
-Linux / macOS は `./setup.sh nvidia` などを使います。
-
 ### 3-3. 起動して出品
 
 ```powershell
 .\start.bat
 ```
 
-1. 初回はベンチマークが走り、価格が表示されます（結果は保存され、次回からは省略。やり直すには `start.bat --rebench`）
-2. `https://xxxx.trycloudflare.com` の URL と **出品リンク** が表示されます
-3. 出品リンクを Phantom を入れたブラウザで開き、「このウォレットで出品する」→ Phantom で承認
-4. 「GPU を借りる」タブに自分の GPU が表示されれば出品完了です。**エージェントを動かしている間だけ** 貸し出されます
-5. 停止するときは、エージェントの画面で `Ctrl + C`
+1. 初回はベンチマークが走り、価格が決まります（やり直すには `start.bat --rebench`）
+2. ブラウザで出品ページが自動で開きます。Phantom を接続して「このウォレットで出品する」→ 承認
+   - 出品の保証金 約 0.003 SOL（取り下げると戻る）と、エージェントの手数料用 0.01 SOL を支払います
+3. 「GPU を借りる」タブに表示されれば完了。**次回からは `start.bat` を起動するだけ** で、エージェントが自動で新しい URL を書き込み受付を再開します
+4. 停止は `Ctrl + C`（自動で「受付停止」が記録されます）
+5. 「GPU を貸す」タブの「あなたの出品」から、取り下げ・精算ができます
 
-> エージェントを起動し直すと URL が変わるので、毎回 3 の出品をやり直してください。出品リンクは 1 回だけ使えます。
+> エージェントの鍵は `agent/data/operator.json` に保存されます。消すと出品を作り直す必要があります。
 
-> Web アプリを GitHub Pages で公開している場合は、出品リンクの宛先をそちらにします:
-> `start.bat --site https://<ユーザー名>.github.io/<リポジトリ名>/`
+### ⚠️ 安全について
 
-### ⚠️ 安全について（必ず読んでください）
-
-借りた人は Jupyter を通して **あなたの PC 上で自由にプログラムを実行できます**。エージェントは専用フォルダ（`agent/sessions/`）で Jupyter を起動し、ターミナル機能を無効にしていますが、**完全な隔離ではありません**（Python から PC 内のファイルやネットワークにアクセスできます）。
-
-- 大事なデータの無い PC で使う
-- デモの間だけ起動し、終わったら `Ctrl + C` で止める
-- 自分の PC 内だけで試すときは `start.bat --no-tunnel`（インターネットに公開しない）
-
-本格的に運用するには、Docker や仮想マシンによる隔離が必要です。
+借りた人は Jupyter を通して **あなたの PC 上で自由にプログラムを実行できます**。専用フォルダ（`agent/sessions/`）で起動しターミナル機能は無効にしていますが、**完全な隔離ではありません**。大事なデータの無い PC で、デモの間だけ起動してください。自分の PC 内だけで試すときは `start.bat --no-tunnel`。
 
 ---
 
 ## 4. GPU を借りる（借り手）
 
-1. 「GPU を借りる」タブで、オンラインの GPU から 1 つ選ぶ（性能と 1 分あたりの価格が表示されます）
-2. レンタル時間（分）を入力 → 「レンタルする」→ Phantom で承認
-3. 自動で「マイレンタル」タブに移動し、環境の準備ができると **「Jupyter を開く」** ボタンが出ます（10〜30 秒）
-4. Jupyter で GPU を使います。例（Intel Arc の場合）:
+1. 「GPU を借りる」タブで GPU を選び、レンタル時間（分）を入力
+2. 「レンタルする（エスクローに預ける）」→ Phantom で承認
+3. 「マイレンタル」タブで貸し手の準備を待つ（10〜30 秒）→ **「Jupyter を開く」**
+4. Jupyter で GPU を使う（例: Intel Arc なら `device="xpu"`、NVIDIA なら `"cuda"`）
    ```python
    import torch
-   x = torch.randn(4096, 4096, device="xpu")   # NVIDIA なら "cuda"
+   x = torch.randn(4096, 4096, device="xpu")
    print((x @ x).sum())
    ```
-5. 残り時間が 0 になると環境は自動で停止します。必要なファイルは事前にダウンロードしてください
+5. 時間になると環境は停止し、代金は自動で貸し手に支払われます
 
-支払い後に利用開始できなかった場合（通信エラー・GPU が別のレンタルで使用中など）は、「マイレンタル」から **「利用開始を再試行」** できます。
-ただし **貸し手がエージェントを再起動・停止した場合、そのレンタルは再開できません**（URL と予約情報が変わるため。デモでは返金もありません）。
+**返金**: 開始前なら「キャンセルして返金」。貸し手が 5 分以内に開始しなかった場合は「返金を受ける」で全額戻ります。
 
 ---
 
-## 5. その他の機能: 直接送金
+## 5. プログラムのビルド・テスト・デプロイ（開発者向け）
+
+WSL (Ubuntu) に Rust・Solana CLI・Anchor 1.2.2 を入れて実行します。
+
+```bash
+# WSL で
+bash program/build.sh          # ビルド + テスト（LiteSVM。時計を進めて期限切れもテスト）
+bash program/build.sh deploy   # + Devnet へデプロイ（デプロイ用ウォレットに約 2.2 SOL 必要）
+```
+
+- **SBPF v0 でビルドしています**: Anchor 1.2.2 の既定は SBPF v3 ですが、Devnet ではまだ v3 が有効になっていないため（2026 年 11 月時点）
+- プログラムのアドレス用の鍵とデプロイ用ウォレットは `program/.keys/`（git には含めません）
+- ローカル validator での通しテスト:
+  ```bash
+  # WSL で
+  solana-test-validator --reset --bpf-program <PROGRAM_ID> ~/sorana-build/target/deploy/sorana_market.so
+  # Windows で
+  node scripts/e2e-local.ts
+  ```
+  Web アプリをローカル validator につなぐには `.env.local` に `VITE_RPC_URL=http://127.0.0.1:8899`
+
+---
+
+## 画面とスライドのデザイン
+
+画面は Meta 系のデザインシステム **Astryx**（`@astryxdesign/core`）の部品とテーマで組んでいます。自前の CSS はありません。
+
+- 部品の使い方: `npx astryx component <名前>`、全体のルール: `AGENTS.md`
+- テーマの変更: `npx astryx theme list` → `npx astryx theme add <名前>` → `npx astryx theme use <名前>`
+- 発表スライド: `npm run dev` で `http://localhost:5173/slides.html`。直したら `npm run slides:export` で `Sorana発表資料/` に PDF と pptx（スピーカーノート付き）を書き出し（Microsoft Edge が必要）
+
+## 6. その他: 直接送金
 
 「直接送金」タブでは、送金先アドレスと数量（SOL）を自由に指定して送金できます。
 
----
-
-## 6. よくあるエラー
+## 7. よくあるエラー
 
 | 表示 | 原因と対処 |
 | --- | --- |
-| ウォレットで承認がキャンセルされました | Phantom で「キャンセル」を押した。もう一度実行 |
+| ウォレットで承認がキャンセルされました | Phantom で「キャンセル」を押した |
 | 残高が足りません | Faucet で Devnet SOL を入手 |
 | RPC が混雑しています | 公開 Devnet RPC の制限。少し待って再試行 |
-| オンラインの GPU はまだありません | 誰もエージェントを起動していない。自分で出品して試せます |
-| このGPUは現在使用中か、他の人が予約中です | 他の人が利用中。終わるまで待つ |
-| 貸し手のエージェントに接続できません | 貸し手がエージェントを止めた。エージェントが再起動された場合、そのレンタルは再開できません（返金なし） |
-| 送信済みですが、完了を確認できませんでした | 送金は成功している可能性あり。再実行の前に Explorer で確認 |
-| `PyTorch が見つかりません` | `setup.bat` を実行していない |
-| `cloudflared が見つかりません` | 3-1 の winget コマンドを実行し、PowerShell を開き直す |
+| この GPU は使用中か、他の人が開始待ちです | 他の人が利用中 |
+| 価格が変わりました | 一覧を更新してから再実行 |
+| 開始期限を過ぎています | 「マイレンタル」から返金を受ける |
+| 未精算のレンタルがあるため取り下げられません | 精算・返金が終わってから取り下げ |
+| この出品リンクは古いか… | エージェントに表示された最新のリンクを開く |
+| `cloudflared が見つかりません` | `winget install --id Cloudflare.cloudflared -e` を実行し PowerShell を開き直す |
 
 ---
 
-## 7. GitHub Pages で公開する
+## 8. GitHub Pages で公開する
 
-`.github/workflows/deploy.yml` により、**main ブランチに push すると自動でビルドして公開** されます。
-（公開されるのは Web アプリだけです。エージェントは各貸し手の PC で動かします）
+`.github/workflows/deploy.yml` により、**main ブランチに push すると自動でビルドして公開** されます（公開されるのは Web アプリだけ）。
 
-### 7-1. リポジトリを作って push
-
-1. [https://github.com/new](https://github.com/new) でリポジトリを作成（Public、初期ファイルなし）
-2. このフォルダで:
-   ```bash
-   git init
-   git add .
-   git commit -m "first commit"
-   git branch -M main
-   git remote add origin https://github.com/<ユーザー名>/<リポジトリ名>.git
-   git push -u origin main
-   ```
-   初めての場合は先に `git config --global user.name "名前"` と `git config --global user.email "メール"` を設定します。
-
-### 7-2. Pages を有効にする
-
-1. リポジトリの **Settings → Pages** で、Source を **GitHub Actions** にする
-2. **Actions** タブで「Deploy to GitHub Pages」が緑になるまで待つ（失敗していたら「Re-run all jobs」）
+1. リポジトリの **Settings → Pages** で Source を **GitHub Actions** にする
+2. **Actions** タブで「Deploy to GitHub Pages」が緑になるのを待つ
 3. 公開 URL: `https://<ユーザー名>.github.io/<リポジトリ名>/`
+4. 貸し手は `start.bat --site https://<ユーザー名>.github.io/<リポジトリ名>/` で起動すると、出品リンクが公開版を指します
 
-以降は `git add . && git commit -m "変更内容" && git push` で自動更新されます。
-`vite.config.ts` で `base: './'` にしているので、リポジトリ名に関係なく動きます。
+> private リポジトリで Pages を使うには GitHub の有料プランが必要です。
 
 ---
 
-## 注意
+## 費用の目安
 
-- Devnet は予告なくリセットされることがあります
-- 公開 RPC（`api.devnet.solana.com`）にはリクエスト制限があります。利用者が増えたら Helius などの RPC サービスを検討してください
-- 出品一覧は最新 40 件の出品トランザクションから作られます
+| 項目 | Devnet | Mainnet の目安 |
+| --- | --- | --- |
+| プログラムのデプロイ | Faucet の SOL で無料 | 約 1.1 SOL（保証金。プログラムを閉じれば戻る） |
+| 出品 1 件 | 無料 | 約 0.003 SOL（保証金。取り下げで戻る） |
+| レンタル 1 件 | 無料 | 約 0.002 SOL（保証金。終了時に借り手へ戻る）+ 代金 |
+| 取引手数料 | 無料 | 1 回 約 0.000005 SOL |

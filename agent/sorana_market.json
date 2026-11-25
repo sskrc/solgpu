@@ -1,0 +1,760 @@
+{
+  "address": "Gk1366at4C4ovkCMauacmRckfo9nbi1nyZo4rRB5Ltdt",
+  "metadata": {
+    "name": "sorana_market",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Sorana GPU rental marketplace with escrow"
+  },
+  "instructions": [
+    {
+      "name": "accept",
+      "docs": [
+        "エージェントが GPU 環境を用意できたことを記録し、利用時間のカウントを始める"
+      ],
+      "discriminator": [
+        65,
+        150,
+        70,
+        216,
+        133,
+        6,
+        107,
+        4
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "listing",
+          "writable": true,
+          "relations": [
+            "rental"
+          ]
+        },
+        {
+          "name": "rental",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_listing",
+      "docs": [
+        "出品を取り下げ、保証金を返してもらう（貸し手のみ。未精算のレンタルが無いこと）"
+      ],
+      "discriminator": [
+        33,
+        15,
+        192,
+        81,
+        78,
+        175,
+        159,
+        97
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "listing"
+          ]
+        },
+        {
+          "name": "listing",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_listing",
+      "docs": [
+        "GPU を出品する（貸し手のウォレットが署名）"
+      ],
+      "discriminator": [
+        18,
+        168,
+        45,
+        24,
+        191,
+        31,
+        117,
+        54
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "listing",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "listing_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "listing_id",
+          "type": "u64"
+        },
+        {
+          "name": "operator",
+          "type": "pubkey"
+        },
+        {
+          "name": "agent_url",
+          "type": "string"
+        },
+        {
+          "name": "gpu",
+          "type": "string"
+        },
+        {
+          "name": "tflops_x100",
+          "type": "u32"
+        },
+        {
+          "name": "lamports_per_minute",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "refund",
+      "docs": [
+        "開始されなかったレンタルを返金（借り手はいつでも / 他の人は期限後。代金は借り手へ）"
+      ],
+      "discriminator": [
+        2,
+        96,
+        183,
+        251,
+        63,
+        208,
+        46,
+        46
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "借り手本人ならいつでも、それ以外の人は accept 期限後のみ"
+          ],
+          "signer": true
+        },
+        {
+          "name": "listing",
+          "writable": true,
+          "relations": [
+            "rental"
+          ]
+        },
+        {
+          "name": "rental",
+          "writable": true
+        },
+        {
+          "name": "renter",
+          "writable": true,
+          "relations": [
+            "rental"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "rent_gpu",
+      "docs": [
+        "GPU を借りる。代金はエスクロー（Rental アカウント）に預けられる"
+      ],
+      "discriminator": [
+        165,
+        75,
+        154,
+        92,
+        53,
+        93,
+        2,
+        109
+      ],
+      "accounts": [
+        {
+          "name": "renter",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "listing",
+          "writable": true
+        },
+        {
+          "name": "rental",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  110,
+                  116,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing"
+              },
+              {
+                "kind": "account",
+                "path": "renter"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "minutes",
+          "type": "u32"
+        },
+        {
+          "name": "expected_lamports_per_minute",
+          "type": "u64"
+        },
+        {
+          "name": "secret_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "settle",
+      "docs": [
+        "終了時刻を過ぎたレンタルを精算（誰でも呼べる。代金は貸し手へ）"
+      ],
+      "discriminator": [
+        175,
+        42,
+        185,
+        87,
+        144,
+        131,
+        102,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "誰が呼んでもよい（手数料を払う人）"
+          ],
+          "signer": true
+        },
+        {
+          "name": "listing",
+          "writable": true,
+          "relations": [
+            "rental"
+          ]
+        },
+        {
+          "name": "rental",
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "relations": [
+            "rental"
+          ]
+        },
+        {
+          "name": "renter",
+          "writable": true,
+          "relations": [
+            "rental"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_agent",
+      "docs": [
+        "エージェントの URL と受付状態を更新（貸し手 または エージェント）"
+      ],
+      "discriminator": [
+        85,
+        2,
+        178,
+        9,
+        119,
+        139,
+        102,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "listing",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "agent_url",
+          "type": "string"
+        },
+        {
+          "name": "active",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "update_listing",
+      "docs": [
+        "価格・性能値・エージェントの鍵を更新（貸し手のみ。レンタル中は不可）"
+      ],
+      "discriminator": [
+        192,
+        174,
+        210,
+        68,
+        116,
+        40,
+        242,
+        253
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "listing"
+          ]
+        },
+        {
+          "name": "listing",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "operator",
+          "type": "pubkey"
+        },
+        {
+          "name": "gpu",
+          "type": "string"
+        },
+        {
+          "name": "tflops_x100",
+          "type": "u32"
+        },
+        {
+          "name": "lamports_per_minute",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Listing",
+      "discriminator": [
+        218,
+        32,
+        50,
+        73,
+        43,
+        134,
+        26,
+        58
+      ]
+    },
+    {
+      "name": "Rental",
+      "discriminator": [
+        121,
+        83,
+        229,
+        235,
+        73,
+        50,
+        143,
+        184
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidUrl",
+      "msg": "Agent URL is too long or not http(s)"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidGpuName",
+      "msg": "GPU name is too long or empty"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidPrice",
+      "msg": "Price is out of range"
+    },
+    {
+      "code": 6003,
+      "name": "NotOwner",
+      "msg": "Only the listing owner can do this"
+    },
+    {
+      "code": 6004,
+      "name": "NotOwnerOrOperator",
+      "msg": "Only the listing owner or its agent can do this"
+    },
+    {
+      "code": 6005,
+      "name": "NotOperator",
+      "msg": "Only the listing's agent can do this"
+    },
+    {
+      "code": 6006,
+      "name": "ListingInactive",
+      "msg": "Listing is not accepting rentals"
+    },
+    {
+      "code": 6007,
+      "name": "ListingBusy",
+      "msg": "GPU is busy"
+    },
+    {
+      "code": 6008,
+      "name": "HasOpenRentals",
+      "msg": "Listing still has unsettled rentals"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidMinutes",
+      "msg": "Minutes must be between 1 and MAX_MINUTES"
+    },
+    {
+      "code": 6010,
+      "name": "PriceChanged",
+      "msg": "Price changed; reload and try again"
+    },
+    {
+      "code": 6011,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6012,
+      "name": "NotPending",
+      "msg": "Rental is not waiting to be accepted"
+    },
+    {
+      "code": 6013,
+      "name": "NotActive",
+      "msg": "Rental is not active"
+    },
+    {
+      "code": 6014,
+      "name": "AcceptDeadlinePassed",
+      "msg": "Accept deadline has passed"
+    },
+    {
+      "code": 6015,
+      "name": "NotEnded",
+      "msg": "Rental has not ended yet"
+    },
+    {
+      "code": 6016,
+      "name": "RefundNotAllowed",
+      "msg": "Refund is only possible for the renter, or after the accept deadline"
+    }
+  ],
+  "types": [
+    {
+      "name": "Listing",
+      "docs": [
+        "出品（GPU 1 台につき 1 つ）",
+        "PDA: [\"listing\", owner, listing_id]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "docs": [
+              "代金の受取先（貸し手のウォレット）"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "operator",
+            "docs": [
+              "GPU の PC で動くエージェントの鍵。accept と URL 更新だけができる"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "listing_id",
+            "type": "u64"
+          },
+          {
+            "name": "agent_url",
+            "type": "string"
+          },
+          {
+            "name": "gpu",
+            "type": "string"
+          },
+          {
+            "name": "tflops_x100",
+            "docs": [
+              "ベンチマーク結果 (TFLOPS × 100)"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "lamports_per_minute",
+            "type": "u64"
+          },
+          {
+            "name": "active",
+            "docs": [
+              "エージェントが起動中で受付中か"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "busy_until",
+            "docs": [
+              "この時刻 (unix 秒) まで使用中・予約中"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "current_rental",
+            "docs": [
+              "直近のレンタル"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "open_rentals",
+            "docs": [
+              "未精算のレンタル数（0 でないと出品を取り下げられない）"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "total_rentals",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Rental",
+      "docs": [
+        "レンタル（エスクロー口座を兼ねる）",
+        "PDA: [\"rental\", listing, renter, nonce]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "listing",
+            "type": "pubkey"
+          },
+          {
+            "name": "renter",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "docs": [
+              "代金の受取先（出品時点の owner を固定）"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "minutes",
+            "type": "u32"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "預かっている代金 (lamports)。口座の保証金とは別"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "secret_hash",
+            "docs": [
+              "借り手だけが知る秘密の値の SHA-256。エージェントが本人確認に使う"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "RentalStatus"
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "accept_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "started_at",
+            "type": "i64"
+          },
+          {
+            "name": "ends_at",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RentalStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Active"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "ACCEPT_TIMEOUT_SECS",
+      "docs": [
+        "エージェントが利用開始 (accept) するまでの猶予。過ぎたら返金できる"
+      ],
+      "type": "i64",
+      "value": "300"
+    },
+    {
+      "name": "LISTING_SEED",
+      "type": "bytes",
+      "value": "[108, 105, 115, 116, 105, 110, 103]"
+    },
+    {
+      "name": "MAX_LAMPORTS_PER_MINUTE",
+      "type": "u64",
+      "value": "1000000000"
+    },
+    {
+      "name": "MAX_MINUTES",
+      "docs": [
+        "1 回のレンタルの最大時間（分）"
+      ],
+      "type": "u32",
+      "value": "240"
+    },
+    {
+      "name": "MIN_LAMPORTS_PER_MINUTE",
+      "docs": [
+        "価格の下限・上限（lamports / 分）"
+      ],
+      "type": "u64",
+      "value": "10000"
+    },
+    {
+      "name": "RENTAL_SEED",
+      "type": "bytes",
+      "value": "[114, 101, 110, 116, 97, 108]"
+    }
+  ]
+}

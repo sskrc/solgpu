@@ -28,3 +28,11 @@ agent/.venv
 agent/data
 agent/sessions
 __pycache__
+
+# Anchor
+program/target
+program/.anchor
+
+# Solana keypairs (never commit)
+program/.keys
+*-keypair.json

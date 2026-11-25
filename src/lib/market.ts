@@ -1,18 +1,22 @@
-import type { ParsedTransactionWithMeta } from '@solana/web3.js'
-import { connection, MEMO_PROGRAM_ID, REGISTRY } from './solana'
+import { PublicKey } from '@solana/web3.js'
+import { fetchListings, type Listing } from './program'
+import { connection } from './solana'
 
 // ===== 貸し手エージェントとの通信 =====
 export type AgentInfo = {
   sorana: string
+  programId: string
   agentUrl: string
   gpu: string
   backend: string
   dtype: string
   tflops: number
   lamportsPerMinute: number
-  payout: string | null
+  operator: string
+  operatorBalance: number | null
+  listing: string | null
+  owner: string | null
   busy: boolean
-  busyUntil: number
   maxMinutes: number
 }
 
@@ -22,6 +26,7 @@ export type SessionInfo = {
   url: string
   minutes: number
   expiresAt: number
+  settleSignature: string
   now: number
 }
 
@@ -49,93 +54,60 @@ async function call<T>(base: string, path: string, body?: unknown, timeoutMs = 6
 export const agentApi = {
   info: (base: string, timeoutMs = 5_000) => call<AgentInfo>(base, '/info', undefined, timeoutMs),
   checkCode: (base: string, code: string) => call<{ ok: boolean }>(base, '/check-code', { code }, 10_000),
-  activate: (base: string, signature: string, code: string) => call<AgentInfo>(base, '/activate', { signature, code }),
-  reserve: (base: string, renter: string) =>
-    call<{ reservationId: string; expiresAt: number; payout: string; lamportsPerMinute: number }>(base, '/reserve', { renter }),
-  claim: (base: string, signature: string, secret: string) => call<SessionInfo>(base, '/claim', { signature, secret }),
-  session: (base: string, signature: string, secret: string) => call<SessionInfo>(base, '/session', { signature, secret }),
+  activate: (base: string, listing: string, code: string) => call<AgentInfo>(base, '/activate', { listing, code }),
+  claim: (base: string, rental: string, secret: string) => call<SessionInfo>(base, '/claim', { rental, secret }),
+  session: (base: string, rental: string, secret: string) => call<SessionInfo>(base, '/session', { rental, secret }),
 }
 
-// ===== メモの形式 =====
-/** 出品メモには認証コードそのものではなくハッシュだけを書く（コードはエージェントに直接送る） */
-export const listMemo = (agent: string, codeHash: string) => `sorana:v1:list:${JSON.stringify({ agent, codeHash })}`
-export const rentMemo = (r: string, m: number, h: string) => `sorana:v1:rent:${JSON.stringify({ r, m, h })}`
-
-// ===== オンチェーンの出品一覧を読む =====
-export type Listing = { agentUrl: string; lister: string; signature: string; time: number; info: AgentInfo | null }
-
-function memoOf(tx: ParsedTransactionWithMeta): string | null {
-  for (const ix of tx.transaction.message.instructions) {
-    if (ix.programId.equals(MEMO_PROGRAM_ID) && 'parsed' in ix && typeof ix.parsed === 'string') return ix.parsed
-  }
-  return null
-}
+// ===== マーケットの一覧（オンチェーンの出品 + エージェントの生存確認）=====
+export type MarketItem = { listing: Listing; info: AgentInfo }
 
 /**
- * REGISTRY アドレスの履歴から出品メモを集め、各エージェントに問い合わせて
- * 「オンライン」かつ「出品者と受取アドレスが一致する」ものだけを返す
+ * Amari プログラムの出品アカウントを読み、受付中のものに問い合わせて、
+ * 「オンライン」かつ「エージェント自身がその出品に紐付いていると答えた」ものだけを返す
+ * （他人のエージェントの URL を勝手に出品しても表示されない）
  */
-export async function loadListings(limit = 40): Promise<Listing[]> {
-  const sigs = await connection.getSignaturesForAddress(REGISTRY, { limit })
-  const ok = sigs.filter((s) => !s.err).map((s) => s.signature)
-  if (ok.length === 0) return []
-  const txs = await connection.getParsedTransactions(ok, { maxSupportedTransactionVersion: 0 })
-
-  const latestByAgent = new Map<string, Listing>()
-  txs.forEach((tx, i) => {
-    if (!tx || tx.meta?.err) return
-    const memo = memoOf(tx)
-    if (!memo?.startsWith('sorana:v1:list:')) return
-    try {
-      const { agent } = JSON.parse(memo.slice('sorana:v1:list:'.length)) as { agent: string }
-      if (typeof agent !== 'string' || !/^https?:\/\//.test(agent)) return
-      const lister = tx.transaction.message.accountKeys[0].pubkey.toBase58()
-      if (!latestByAgent.has(agent)) {
-        // getSignaturesForAddress は新しい順なので、最初に見つかったものが最新
-        latestByAgent.set(agent, { agentUrl: agent, lister, signature: ok[i], time: tx.blockTime ?? 0, info: null })
-      }
-    } catch {
-      /* 壊れたメモは無視 */
-    }
-  })
-
-  const listings = [...latestByAgent.values()]
-  await Promise.all(
-    listings.map(async (l) => {
+export async function loadMarket(): Promise<MarketItem[]> {
+  const listings = (await fetchListings(connection)).filter((l) => l.active)
+  const items = await Promise.all(
+    listings.map(async (listing) => {
       try {
-        const info = await agentApi.info(l.agentUrl, 4_000)
-        // 他人のエージェントを勝手に出品できないよう、エージェント自身が認識している受取アドレスと照合
-        if (info.payout === l.lister && info.agentUrl === l.agentUrl) l.info = info
+        const info = await agentApi.info(listing.agentUrl, 4_000)
+        if (info.listing === listing.address.toBase58() && info.operator === listing.operator.toBase58()) {
+          return { listing, info }
+        }
       } catch {
         /* オフライン */
       }
+      return null
     }),
   )
-  return listings.filter((l) => l.info)
+  return items.filter((x): x is MarketItem => x !== null)
 }
 
 // ===== 借りたレンタルの記録（このブラウザに保存）=====
-export type Rental = {
+export type SavedRental = {
+  rental: string
+  listing: string
   agentUrl: string
   gpu: string
   minutes: number
   lamports: number
   secret: string
-  reservationId: string
-  signature?: string
   createdAt: number
+  paid?: boolean
 }
 
-const KEY = 'sorana:rentals'
-export function loadRentals(): Rental[] {
+const KEY = 'sorana:rentals:v2'
+export function loadRentals(): SavedRental[] {
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? '[]') as Rental[]
+    return JSON.parse(localStorage.getItem(KEY) ?? '[]') as SavedRental[]
   } catch {
     return []
   }
 }
-export function saveRental(r: Rental) {
-  const all = loadRentals().filter((x) => !(x.reservationId === r.reservationId && x.agentUrl === r.agentUrl))
+export function saveRental(r: SavedRental) {
+  const all = loadRentals().filter((x) => x.rental !== r.rental)
   try {
     localStorage.setItem(KEY, JSON.stringify([r, ...all].slice(0, 50)))
   } catch {
@@ -143,12 +115,13 @@ export function saveRental(r: Rental) {
   }
 }
 
-export async function sha256Hex(text: string) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')
+export async function sha256(text: string) {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
 }
 
 export function randomSecret() {
   const b = crypto.getRandomValues(new Uint8Array(24))
   return [...b].map((x) => x.toString(16).padStart(2, '0')).join('')
 }
+
+export const toKey = (s: string) => new PublicKey(s)

@@ -1,19 +1,70 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Banner } from '@astryxdesign/core/Banner'
+import { Button } from '@astryxdesign/core/Button'
+import { Card } from '@astryxdesign/core/Card'
+import { Code } from '@astryxdesign/core/Code'
+import { CodeBlock } from '@astryxdesign/core/CodeBlock'
+import { Divider } from '@astryxdesign/core/Divider'
+import { EmptyState } from '@astryxdesign/core/EmptyState'
+import { Grid } from '@astryxdesign/core/Grid'
+import { Heading } from '@astryxdesign/core/Heading'
+import { HStack } from '@astryxdesign/core/HStack'
+import { Link } from '@astryxdesign/core/Link'
+import { Spinner } from '@astryxdesign/core/Spinner'
+import { StatusDot } from '@astryxdesign/core/StatusDot'
+import { Step, Stepper } from '@astryxdesign/core/Stepper'
+import { Text } from '@astryxdesign/core/Text'
+import { VStack } from '@astryxdesign/core/VStack'
+import { PageHeader, SectionTitle } from '../components/PageHeader'
 import { StatusBox, type Status } from '../components/StatusBox'
-import { agentApi, listMemo, sha256Hex, type AgentInfo } from '../lib/market'
+import { agentApi, toKey, type AgentInfo } from '../lib/market'
 import {
+  closeListingIx,
+  createListingIx,
+  fetchListings,
+  fetchRental,
+  randomU64,
+  settleIx,
+  type Listing,
+  type Rental,
+} from '../lib/program'
+import {
+  connection,
+  explorer,
   LAMPORTS_PER_TFLOPS_MINUTE,
   lamportsToSol,
-  memoIx,
   MIN_LAMPORTS_PER_MINUTE,
-  REGISTRY,
+  shorten,
   signAndSend,
   toFriendlyError,
   transferIx,
 } from '../lib/solana'
 import type { Wallet } from '../lib/useWallet'
 
-/** GPU を貸す（エージェントの出品） */
+/** エージェントの手数料（利用開始・精算の記録）用に、出品時に送っておく額 */
+const OPERATOR_FUND_LAMPORTS = 10_000_000 // 0.01 SOL ≒ 2,000 回分
+const OPERATOR_MIN_LAMPORTS = 2_000_000
+
+/** 数値を大きく見せる小さな統計 */
+function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <VStack gap={0.5}>
+      <Text type="label" color="secondary">
+        {label}
+      </Text>
+      <Text size="xl" weight="bold">
+        {value}
+      </Text>
+      {note && (
+        <Text type="supporting" color="secondary">
+          {note}
+        </Text>
+      )}
+    </VStack>
+  )
+}
+
+/** GPU を貸す（出品と管理） */
 export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; code: string }) {
   const [info, setInfo] = useState<AgentInfo | null>(null)
   const [infoError, setInfoError] = useState('')
@@ -46,22 +97,34 @@ export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; c
       // 手数料を払う前に、リンクが最新か確認（古いリンクで署名してしまうのを防ぐ）
       setStatus({ kind: 'busy', message: '出品リンクを確認しています…' })
       await agentApi.checkCode(agent, code)
-      // 目印アドレス (REGISTRY) に 0 SOL 送るトランザクションにメモを付ける → 誰でも出品一覧として読める
-      const codeHash = await sha256Hex(code)
-      const signature = await signAndSend(
-        wallet.phantom,
-        wallet.publicKey,
-        [transferIx(wallet.publicKey, REGISTRY, 0), memoIx(wallet.publicKey, listMemo(agent, codeHash))],
-        (message) => setStatus({ kind: 'busy', message }),
+      const operator = toKey(info.operator)
+      const { listing, ix } = createListingIx({
+        owner: wallet.publicKey,
+        listingId: randomU64(),
+        operator,
+        agentUrl: agent,
+        gpu: info.gpu,
+        tflops: info.tflops,
+        lamportsPerMinute: info.lamportsPerMinute,
+      })
+      const ixs = [ix]
+      if ((info.operatorBalance ?? 0) < OPERATOR_MIN_LAMPORTS) {
+        ixs.push(transferIx(wallet.publicKey, operator, OPERATOR_FUND_LAMPORTS))
+      }
+      const signature = await signAndSend(wallet.phantom, wallet.publicKey, ixs, (message) =>
+        setStatus({ kind: 'busy', message }),
       )
       setStatus({ kind: 'busy', message: 'エージェントに出品を知らせています…' })
-      const updated = await agentApi.activate(agent, signature, code)
-      setInfo(updated)
+      setInfo(await agentApi.activate(agent, listing.toBase58(), code))
       wallet.refreshBalance()
       setStatus({
         kind: 'success',
-        title: '出品しました！',
-        body: <p>「GPU を借りる」タブに表示されます。エージェントを動かしている間だけ貸し出されます。</p>,
+        title: '出品しました',
+        body: (
+          <Text>
+            「GPU を借りる」タブに表示されます。エージェントを動かしている間だけ貸し出され、次回からはエージェントを起動するだけで自動的に受付を再開します。
+          </Text>
+        ),
         signature,
       })
     } catch (err) {
@@ -69,87 +132,203 @@ export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; c
     }
   }
 
+  const alreadyListed = info?.listing && info.owner
+
   return (
-    <>
+    <VStack gap={8}>
+      <PageHeader
+        title="GPU を貸す"
+        description="あまっている GPU を出品すると、借りた時間の分だけ SOL が届きます。"
+      />
+
       {!agent && (
-        <section className="card">
-          <h2>あなたの GPU を貸し出す</h2>
-          <ol className="steps">
-            <li>
-              貸し出したい PC で <b>Sorana エージェント</b> を起動します（手順は README の「GPU を貸す」）。
-              <pre>{`cd agent\n.\\.venv\\Scripts\\python sorana_agent.py --i-understand-the-risk`}</pre>
-            </li>
-            <li>エージェントが GPU のベンチマークを行い、1 分あたりの価格を自動で決めます。</li>
-            <li>
-              画面に表示された <b>出品リンク</b> をこのブラウザで開き、Phantom で「出品する」を承認します。
-            </li>
-            <li>借りた人の支払いは、あなたのウォレットに直接届きます。</li>
-          </ol>
-          <p className="muted small">
-            価格ルール: 計測した性能 (TFLOPS) × {lamportsToSol(LAMPORTS_PER_TFLOPS_MINUTE)} SOL / 分（最低{' '}
+        <VStack gap={5}>
+          <Stepper activeStep={0} orientation="vertical" label="出品の手順">
+            <Step step={0} label="貸し出したい PC で Amari エージェントを起動" description="手順は README の「GPU を貸す」にあります。">
+              <CodeBlock code={'cd agent\n.\\start.bat'} language="powershell" title="PowerShell" />
+            </Step>
+            <Step step={1} label="ベンチマークで価格が自動で決まる" description="エージェントが GPU の性能を測り、1 分あたりの価格を決めます。" />
+            <Step step={2} label="ブラウザで出品ページが開く" description="Phantom で「このウォレットで出品する」を承認します。" />
+            <Step step={3} label="利用後、代金があなたのウォレットに届く" description="借り手の代金はプログラムのエスクローに預けられ、利用時間の終了後に支払われます。" />
+          </Stepper>
+          <Text type="supporting" color="secondary">
+            価格ルール：計測した性能（TFLOPS）× {lamportsToSol(LAMPORTS_PER_TFLOPS_MINUTE)} SOL / 分（最低{' '}
             {lamportsToSol(MIN_LAMPORTS_PER_MINUTE)} SOL / 分）
-          </p>
-          <div className="warn-box">
-            ⚠️ 借りた人は Jupyter からあなたの PC 上でプログラムを実行できます（専用フォルダで起動しますが、完全な隔離ではありません）。
-            大事なデータの無い PC で、デモの間だけ起動してください。
-          </div>
-        </section>
+          </Text>
+          <Banner
+            status="warning"
+            title="借りた人は Jupyter からあなたの PC 上でプログラムを実行できます"
+            description="専用フォルダで起動しますが、完全な隔離ではありません。大事なデータの無い PC で、デモの間だけ起動してください。"
+          />
+        </VStack>
       )}
 
       {agent && (
-        <section className="card">
-          <h2>GPU を出品する</h2>
-          {infoError && (
-            <p className="err-text">
-              エージェントに接続できません: {infoError}
-              <br />
-              エージェントが起動しているか確認し、表示された最新のリンクを開いてください。
-            </p>
-          )}
-          {!info && !infoError && (
-            <p className="muted">
-              <span className="spinner" /> エージェントに接続しています…
-            </p>
-          )}
-          {info && (
-            <>
-              <div className="bench">
-                <div>
-                  <div className="label">GPU</div>
-                  <div className="gpu-name">{info.gpu}</div>
-                  <div className="muted small">{info.backend.toUpperCase()}</div>
-                </div>
-                <div>
-                  <div className="label">ベンチマーク ({info.dtype} 行列積)</div>
-                  <div className="balance">{info.tflops} TFLOPS</div>
-                </div>
-                <div>
-                  <div className="label">自動で決まった価格</div>
-                  <div className="balance">{lamportsToSol(info.lamportsPerMinute)} SOL / 分</div>
-                  <div className="muted small">1 時間 = {lamportsToSol(info.lamportsPerMinute * 60)} SOL</div>
-                </div>
-              </div>
-              <p className="muted small mono break">エージェント: {agent}</p>
-              {info.payout && (
-                <p className="small">
-                  現在の受取ウォレット: <span className="mono">{info.payout}</span>
-                </p>
-              )}
-              {!wallet.publicKey ? (
-                <p className="muted center">右上から Phantom を接続してください（このウォレットが受取先になります）。</p>
-              ) : (
-                <button className="btn primary big" onClick={list} disabled={busy || !code || !!codeError}>
-                  {busy ? '処理中…' : 'このウォレットで出品する'}
-                </button>
-              )}
-              {codeError && <p className="err-text">⚠️ {codeError}</p>}
-              {!code && <p className="err-text small">リンクに認証コードがありません。エージェントに表示されたリンクを開いてください。</p>}
-              <p className="muted small center">出品には少額の手数料（約 0.000005 SOL）がかかります。</p>
-            </>
-          )}
-          <StatusBox status={status} />
-        </section>
+        <Card padding={5}>
+          <VStack gap={5}>
+            <SectionTitle title="GPU を出品する" />
+            {infoError && (
+              <Banner
+                status="error"
+                title={`エージェントに接続できません: ${infoError}`}
+                description="エージェントが起動しているか確認し、表示された最新のリンクを開いてください。"
+              />
+            )}
+            {!info && !infoError && (
+              <HStack gap={2} align="center">
+                <Spinner size="sm" />
+                <Text color="secondary">エージェントに接続しています…</Text>
+              </HStack>
+            )}
+            {info && (
+              <>
+                <Grid columns={{ minWidth: 220 }} gap={5}>
+                  <Stat label="GPU" value={info.gpu} note={info.backend.toUpperCase()} />
+                  <Stat label={`ベンチマーク（${info.dtype}）`} value={`${info.tflops} TFLOPS`} />
+                  <Stat
+                    label="自動で決まった価格"
+                    value={`${lamportsToSol(info.lamportsPerMinute)} SOL / 分`}
+                    note={`1 時間 = ${lamportsToSol(info.lamportsPerMinute * 60)} SOL`}
+                  />
+                </Grid>
+                <Text type="supporting" color="secondary" wordBreak="break-all">
+                  エージェント <Code color="inherit">{agent}</Code>
+                </Text>
+                <Divider />
+                {alreadyListed ? (
+                  <Banner
+                    status="success"
+                    title="このエージェントは出品済みです"
+                    description={`受取ウォレット ${shorten(info.owner!)}`}
+                  />
+                ) : !wallet.publicKey ? (
+                  <Text color="secondary" justify="center" display="block">
+                    右上から Phantom を接続してください（このウォレットが受取先になります）。
+                  </Text>
+                ) : (
+                  <Button
+                    label={busy ? '処理中…' : 'このウォレットで出品する'}
+                    variant="primary"
+                    size="lg"
+                    width="100%"
+                    onClick={list}
+                    isDisabled={!code || !!codeError}
+                    isLoading={busy}
+                  />
+                )}
+                {codeError && !alreadyListed && <Banner status="error" title={codeError} />}
+                {!code && !alreadyListed && (
+                  <Banner status="error" title="リンクに認証コードがありません" description="エージェントに表示されたリンクを開いてください。" />
+                )}
+                {!alreadyListed && (
+                  <Text type="supporting" color="secondary" justify="center" display="block">
+                    出品には保証金 約 0.003 SOL（取り下げると戻ります）と、エージェントの手数料用 0.01 SOL がかかります。
+                  </Text>
+                )}
+              </>
+            )}
+            <StatusBox status={status} />
+          </VStack>
+        </Card>
       )}
-    </>
+
+      {wallet.publicKey && <MyListings wallet={wallet} refreshKey={status.kind} />}
+    </VStack>
+  )
+}
+
+/** 自分の出品の一覧（取り下げ・精算） */
+function MyListings({ wallet, refreshKey }: { wallet: Wallet; refreshKey: string }) {
+  const [listings, setListings] = useState<{ listing: Listing; current: Rental | null }[] | null>(null)
+  const [error, setError] = useState('')
+  const [action, setAction] = useState<Status>({ kind: 'idle' })
+
+  const load = useCallback(async () => {
+    if (!wallet.publicKey) return
+    try {
+      const ls = await fetchListings(connection, wallet.publicKey)
+      const withRental = await Promise.all(
+        ls.map(async (listing) => ({
+          listing,
+          current: listing.openRentals > 0 ? await fetchRental(connection, listing.currentRental) : null,
+        })),
+      )
+      setListings(withRental)
+      setError('')
+    } catch (e) {
+      setError(toFriendlyError(e).message)
+    }
+  }, [wallet.publicKey])
+
+  useEffect(() => {
+    const t = setTimeout(load, 0)
+    return () => clearTimeout(t)
+  }, [load, refreshKey])
+
+  const run = async (label: string, ix: Parameters<typeof signAndSend>[2][number]) => {
+    if (!wallet.phantom || !wallet.publicKey) return
+    try {
+      const signature = await signAndSend(wallet.phantom, wallet.publicKey, [ix], (message) =>
+        setAction({ kind: 'busy', message }),
+      )
+      setAction({ kind: 'success', title: label, signature })
+      wallet.refreshBalance()
+      load()
+    } catch (e) {
+      setAction({ kind: 'error', ...toFriendlyError(e) })
+    }
+  }
+
+  const now = Date.now() / 1000
+  return (
+    <VStack gap={4}>
+      <SectionTitle title="あなたの出品" actions={<Button label="更新" size="sm" variant="ghost" onClick={load} />} />
+      {error && <Banner status="error" title={error} />}
+      {listings?.length === 0 && (
+        <EmptyState isCompact title="まだ出品はありません" description="エージェントを起動すると、ここに出品が並びます。" />
+      )}
+      <VStack gap={4}>
+        {listings?.map(({ listing: l, current }, idx) => {
+          const settleable = current?.status === 'Active' && now >= current.endsAt
+          return (
+            <Fragment key={l.address.toBase58()}>
+              {idx > 0 && <Divider />}
+              <VStack gap={3}>
+                <HStack gap={3} justify="between" align="start" wrap="wrap">
+                  <VStack gap={0.5}>
+                    <Heading level={3}>{l.gpu}</Heading>
+                    <Text type="supporting" color="secondary">
+                      {lamportsToSol(l.lamportsPerMinute)} SOL / 分・レンタル実績 {l.totalRentals} 回・未精算 {l.openRentals} 件
+                    </Text>
+                  </VStack>
+                  <HStack gap={1} align="center">
+                    <StatusDot variant={l.active ? 'success' : 'neutral'} label={l.active ? '受付中' : '停止中'} />
+                    <Text type="label">{l.active ? '受付中' : '停止中'}</Text>
+                  </HStack>
+                </HStack>
+                {settleable && <Text>終了したレンタルの精算待ちです（{lamportsToSol(current.amount)} SOL）。</Text>}
+                <HStack gap={3} align="center" wrap="wrap">
+                  {settleable && (
+                    <Button label="精算する" size="sm" variant="primary" onClick={() => run('精算しました', settleIx(wallet.publicKey!, current))} />
+                  )}
+                  <Button
+                    label="取り下げる"
+                    size="sm"
+                    variant="secondary"
+                    isDisabled={l.openRentals > 0}
+                    tooltip={l.openRentals > 0 ? '未精算のレンタルがあると取り下げられません' : undefined}
+                    onClick={() => run('出品を取り下げました（保証金が戻りました）', closeListingIx(wallet.publicKey!, l.address))}
+                  />
+                  <Link href={explorer(`address/${l.address.toBase58()}`)} isExternalLink type="supporting">
+                    出品アカウント
+                  </Link>
+                </HStack>
+              </VStack>
+            </Fragment>
+          )
+        })}
+      </VStack>
+      <StatusBox status={action} />
+    </VStack>
   )
 }

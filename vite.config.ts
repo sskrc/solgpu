@@ -6,7 +6,8 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   build: {
-    chunkSizeWarningLimit: 1000,
+    // 発表スライド（slides.html）は公開ビルドに含めない（npm run dev と npm run slides:export でだけ使う）
+    chunkSizeWarningLimit: 1600,
   },
   define: {
     global: 'globalThis',

@@ -1,42 +1,102 @@
-import { useCallback, useEffect, useState } from 'react'
-import { agentApi, loadRentals, type Rental, type SessionInfo } from '../lib/market'
-import { explorer, lamportsToSol, shorten } from '../lib/solana'
+import { Fragment, useCallback, useEffect, useState } from 'react'
+import { Banner } from '@astryxdesign/core/Banner'
+import { Button } from '@astryxdesign/core/Button'
+import { Code } from '@astryxdesign/core/Code'
+import { Divider } from '@astryxdesign/core/Divider'
+import { EmptyState } from '@astryxdesign/core/EmptyState'
+import { Heading } from '@astryxdesign/core/Heading'
+import { HStack } from '@astryxdesign/core/HStack'
+import { Link } from '@astryxdesign/core/Link'
+import { ProgressBar } from '@astryxdesign/core/ProgressBar'
+import { Spinner } from '@astryxdesign/core/Spinner'
+import { StatusDot } from '@astryxdesign/core/StatusDot'
+import { Text } from '@astryxdesign/core/Text'
+import { VStack } from '@astryxdesign/core/VStack'
+import { PageHeader } from '../components/PageHeader'
+import { StatusBox, type Status } from '../components/StatusBox'
+import { agentApi, loadRentals, toKey, type SavedRental, type SessionInfo } from '../lib/market'
+import { fetchRental, fetchRentalsByRenter, refundIx, settleIx, type Rental } from '../lib/program'
+import { connection, explorer, lamportsToSol, shorten, signAndSend, toFriendlyError } from '../lib/solana'
+import type { Wallet } from '../lib/useWallet'
 
-type Live = { session?: SessionInfo; fetchedAt?: number; error?: string; loading?: boolean }
+type Live = {
+  chain?: Rental | null // null = オンチェーンに無い（精算・返金済み、または未払い）
+  session?: SessionInfo
+  fetchedAt?: number
+  agentError?: string
+}
 
-/** 借りた GPU の一覧。Jupyter を開く・残り時間を見る・利用開始の再試行ができる */
-export function MyRentals() {
-  const [rentals] = useState<Rental[]>(() => loadRentals())
+type Dot = 'success' | 'warning' | 'error' | 'accent' | 'neutral'
+
+/** 借りた GPU の一覧。Jupyter を開く・残り時間・開始の再試行・返金・精算ができる */
+export function MyRentals({ wallet }: { wallet: Wallet }) {
+  const [rentals, setRentals] = useState<SavedRental[]>(() => loadRentals())
+
+  // このブラウザに記録が無くても、接続中のウォレットの未精算レンタルを Solana から探して表示する
+  // （記録が消えても返金・精算ができるように）
+  useEffect(() => {
+    if (!wallet.publicKey) return
+    let alive = true
+    fetchRentalsByRenter(connection, wallet.publicKey)
+      .then((onchain) => {
+        if (!alive) return
+        setRentals((cur) => {
+          const known = new Set(cur.map((r) => r.rental))
+          const extra: SavedRental[] = onchain
+            .filter((c) => !known.has(c.address.toBase58()))
+            .map((c) => ({
+              rental: c.address.toBase58(),
+              listing: c.listing.toBase58(),
+              agentUrl: '',
+              gpu: 'GPU（このブラウザ以外で借りたもの）',
+              minutes: c.minutes,
+              lamports: c.amount,
+              secret: '',
+              createdAt: c.createdAt * 1000,
+              paid: true,
+            }))
+          return extra.length ? [...extra, ...cur] : cur
+        })
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [wallet.publicKey])
   const [live, setLive] = useState<Record<string, Live>>({})
   const [now, setNow] = useState(() => Date.now())
+  const [action, setAction] = useState<Record<string, Status>>({})
 
-  const poll = useCallback(async (r: Rental, useClaim = false) => {
-    if (!r.signature) return
-    const key = r.signature
-    setLive((s) => ({ ...s, [key]: { ...s[key], loading: true } }))
-    try {
-      const session = useClaim
-        ? await agentApi.claim(r.agentUrl, r.signature, r.secret)
-        : await agentApi.session(r.agentUrl, r.signature, r.secret).catch(() =>
-            // エージェントがまだセッションを知らない（開始前・失敗後）なら claim で開始を試みる
-            agentApi.claim(r.agentUrl, r.signature!, r.secret),
-          )
-      setLive((s) => ({ ...s, [key]: { session, fetchedAt: Date.now() } }))
-    } catch (err) {
-      setLive((s) => ({ ...s, [key]: { error: (err as Error).message } }))
+  const poll = useCallback(async (r: SavedRental) => {
+    const chain = await fetchRental(connection, toKey(r.rental)).catch(() => undefined)
+    let session: SessionInfo | undefined
+    let agentError: string | undefined
+    if (chain && r.secret) {
+      try {
+        session = await agentApi.session(r.agentUrl, r.rental, r.secret).catch(async (e) => {
+          // エージェントがまだ知らない（開始前）なら、開始待ちの間だけ開始を依頼してみる
+          if (chain.status === 'Pending' && chain.acceptDeadline > Date.now() / 1000) {
+            return agentApi.claim(r.agentUrl, r.rental, r.secret)
+          }
+          throw e
+        })
+      } catch (e) {
+        agentError = (e as Error).message
+      }
     }
+    setLive((s) => ({ ...s, [r.rental]: { chain, session, agentError, fetchedAt: Date.now() } }))
   }, [])
 
-  // 進行中のレンタルを定期的に確認
+  const recent = rentals.filter((r) => Date.now() - r.createdAt < 24 * 60 * 60 * 1000)
   useEffect(() => {
-    const active = rentals.filter((r) => r.signature && Date.now() - r.createdAt < 6 * 60 * 60 * 1000)
-    const tick = () => active.forEach((r) => poll(r))
+    const tick = () => recent.forEach((r) => poll(r))
     const first = setTimeout(tick, 0)
-    const t = setInterval(tick, 5000)
+    const t = setInterval(tick, 6000)
     return () => {
       clearTimeout(first)
       clearInterval(t)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rentals, poll])
 
   useEffect(() => {
@@ -44,88 +104,158 @@ export function MyRentals() {
     return () => clearInterval(t)
   }, [])
 
+  const run = async (r: SavedRental, kind: 'refund' | 'settle', chain: Rental) => {
+    if (!wallet.phantom || !wallet.publicKey) {
+      setAction((a) => ({ ...a, [r.rental]: { kind: 'error', message: 'ウォレットを接続してください。' } }))
+      return
+    }
+    try {
+      const ix = kind === 'refund' ? refundIx(wallet.publicKey, chain) : settleIx(wallet.publicKey, chain)
+      const signature = await signAndSend(wallet.phantom, wallet.publicKey, [ix], (message) =>
+        setAction((a) => ({ ...a, [r.rental]: { kind: 'busy', message } })),
+      )
+      setAction((a) => ({
+        ...a,
+        [r.rental]: { kind: 'success', title: kind === 'refund' ? '返金されました' : '精算しました', signature },
+      }))
+      wallet.refreshBalance()
+      poll(r)
+    } catch (err) {
+      setAction((a) => ({ ...a, [r.rental]: { kind: 'error', ...toFriendlyError(err) } }))
+    }
+  }
+
+  const header = (
+    <PageHeader
+      title="マイレンタル"
+      description="GPU 環境を受け取る秘密の値はこのブラウザにだけ保存されています。返金・精算は Solana 上の記録に基づくので、どのブラウザからでもできます。"
+    />
+  )
+
   if (rentals.length === 0) {
     return (
-      <section className="card">
-        <h2>マイレンタル</h2>
-        <p className="muted">まだレンタルはありません。「GPU を借りる」タブから借りられます。</p>
-      </section>
+      <VStack gap={6}>
+        {header}
+        <EmptyState
+          title="まだレンタルはありません"
+          description="「GPU を借りる」タブから、空いている GPU を分単位で借りられます。"
+          actions={<Button label="GPU を借りる" variant="primary" href="#market" />}
+        />
+      </VStack>
     )
   }
 
   return (
-    <section className="card">
-      <h2>マイレンタル</h2>
-      <p className="muted small">
-        この記録（利用に必要な秘密の値を含む）はこのブラウザにだけ保存されています。別のブラウザからは使えません。
-      </p>
-      <div className="rentals">
-        {rentals.map((r) => {
-          const l = r.signature ? live[r.signature] : undefined
+    <VStack gap={6}>
+      {header}
+      <VStack gap={5}>
+        {rentals.map((r, idx) => {
+          const l = live[r.rental]
+          const c = l?.chain
           const s = l?.session
-          // サーバー時計とのずれを補正して残り時間を出す
-          const serverNow = s ? s.now + (now - (l?.fetchedAt ?? now)) / 1000 : 0
+          const nowSec = now / 1000
+          const serverNow = s ? s.now + (now - (l?.fetchedAt ?? now)) / 1000 : nowSec
           const remaining = s?.expiresAt ? Math.max(0, Math.floor(s.expiresAt - serverNow)) : 0
-          return (
-            <div className="rental" key={r.reservationId}>
-              <div className="row-between">
-                <div>
-                  <b>{r.gpu}</b> × {r.minutes} 分 ・ {lamportsToSol(r.lamports)} SOL
-                  <div className="muted small">{new Date(r.createdAt).toLocaleString('ja-JP')}</div>
-                </div>
-                <div>
-                  {!r.signature && <span className="tag warn">未払い</span>}
-                  {s?.status === 'starting' && <span className="tag">準備中</span>}
-                  {s?.status === 'ready' && remaining > 0 && <span className="tag ok">利用中</span>}
-                  {(s?.status === 'ended' || (s?.status === 'ready' && remaining === 0)) && <span className="tag">終了</span>}
-                  {s?.status === 'error' && <span className="tag warn">エラー</span>}
-                </div>
-              </div>
+          const pending = c?.status === 'Pending'
+          const active = c?.status === 'Active'
+          const deadlinePassed = pending && nowSec > c.acceptDeadline
+          const ended = active && nowSec >= c.endsAt
+          const done = l && c === null
+          const isRenter = wallet.publicKey?.toBase58() === c?.renter.toBase58()
 
-              {s?.status === 'starting' && (
-                <p>
-                  <span className="spinner" /> GPU 環境（Jupyter）を起動しています… 通常 10〜30 秒ほどかかります
-                </p>
-              )}
-              {s?.status === 'ready' && remaining > 0 && (
-                <>
-                  <a className="btn primary" href={s.url} target="_blank" rel="noreferrer">
-                    Jupyter を開く（GPU を使う）↗
-                  </a>
-                  <p className="countdown">
-                    残り {Math.floor(remaining / 60)} 分 {String(remaining % 60).padStart(2, '0')} 秒
-                  </p>
-                  <p className="muted small">
-                    時間になると環境は自動で停止し、ファイルは消えます。必要なものはダウンロードしておいてください。
-                    <br />
-                    開けない（「サイトにアクセスできません」）場合は、URL の準備中です。10〜30 秒待ってから再読み込みしてください。
-                  </p>
-                </>
-              )}
-              {s?.status === 'error' && <p className="err-text">貸し手側でエラー: {s.error}</p>}
-              {l?.error && (
-                <p className="err-text">
-                  {/failed to fetch|タイムアウト/i.test(l.error)
-                    ? '貸し手のエージェントに接続できません（停止している可能性があります）。'
-                    : l.error}
-                </p>
-              )}
-              {r.signature && (
-                <div className="row-actions">
-                  {(l?.error || s?.status === 'error') && (
-                    <button className="btn ghost small-btn" onClick={() => poll(r, true)} disabled={l?.loading}>
-                      利用開始を再試行
-                    </button>
+          let state: { dot: Dot; label: string; pulse?: boolean } = { dot: 'neutral', label: '確認中' }
+          if (done) state = { dot: 'neutral', label: r.paid ? '完了（精算 / 返金済み）' : '未払い' }
+          else if (pending)
+            state = deadlinePassed
+              ? { dot: 'error', label: '開始されず（返金可）' }
+              : { dot: 'warning', label: '開始待ち', pulse: true }
+          else if (active && !ended) state = { dot: 'success', label: '利用中', pulse: true }
+          else if (ended) state = { dot: 'accent', label: '終了（精算待ち）' }
+
+          const showJupyter = active && s?.status === 'ready' && remaining > 0
+          const total = r.minutes * 60
+
+          return (
+            <Fragment key={r.rental}>
+              {idx > 0 && <Divider />}
+              <VStack gap={3}>
+                <HStack gap={3} justify="between" align="start" wrap="wrap">
+                  <VStack gap={0.5}>
+                    <Heading level={3}>{r.gpu}</Heading>
+                    <Text type="supporting" color="secondary">
+                      {r.minutes} 分・{lamportsToSol(r.lamports)} SOL・{new Date(r.createdAt).toLocaleString('ja-JP')}
+                    </Text>
+                  </VStack>
+                  <HStack gap={1} align="center">
+                    <StatusDot variant={state.dot} label={state.label} isPulsing={state.pulse} />
+                    <Text type="label">{state.label}</Text>
+                  </HStack>
+                </HStack>
+
+                {pending && !deadlinePassed && (
+                  <HStack gap={2} align="center">
+                    <Spinner size="sm" />
+                    <Text color="secondary">
+                      貸し手が GPU 環境を準備しています（期限まで残り {Math.max(0, Math.floor(c.acceptDeadline - nowSec))} 秒）
+                    </Text>
+                  </HStack>
+                )}
+
+                {showJupyter && (
+                  <VStack gap={3}>
+                    <HStack gap={4} align="center" wrap="wrap">
+                      <Button
+                        label="Jupyter を開く（GPU を使う）"
+                        variant="primary"
+                        size="lg"
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      />
+                      <Text size="2xl" weight="bold" hasTabularNumbers>
+                        残り {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}
+                      </Text>
+                    </HStack>
+                    <ProgressBar label="残り時間" isLabelHidden value={remaining} max={total} variant="success" />
+                    <Text type="supporting" color="secondary">
+                      時間になると環境は自動で停止し、ファイルは消えます。必要なものはダウンロードしておいてください。開けない（「サイトにアクセスできません」）場合は
+                      URL の準備中です。10〜30 秒待ってから再読み込みしてください。
+                    </Text>
+                  </VStack>
+                )}
+
+                {s?.status === 'error' && <Banner status="error" title={`貸し手側でエラー: ${s.error}`} />}
+                {l?.agentError && !done && (
+                  <Banner
+                    status="warning"
+                    title={/failed to fetch|タイムアウト/i.test(l.agentError) ? '貸し手のエージェントに接続できません' : l.agentError}
+                  />
+                )}
+                {deadlinePassed && (
+                  <Text>貸し手が期限内に開始しなかったため、全額返金を受けられます。</Text>
+                )}
+                {ended && <Text>利用時間が終わりました。通常はエージェントが自動で精算します。</Text>}
+
+                <HStack gap={3} align="center" wrap="wrap">
+                  {pending && (isRenter || deadlinePassed) && (
+                    <Button
+                      label={deadlinePassed ? '返金を受ける' : 'キャンセルして返金'}
+                      variant={deadlinePassed ? 'primary' : 'secondary'}
+                      size="sm"
+                      onClick={() => run(r, 'refund', c)}
+                    />
                   )}
-                  <a className="small" href={explorer(`tx/${r.signature}`)} target="_blank" rel="noreferrer">
-                    支払い {shorten(r.signature)} ↗
-                  </a>
-                </div>
-              )}
-            </div>
+                  {ended && <Button label="精算する" size="sm" onClick={() => run(r, 'settle', c)} />}
+                  <Link href={explorer(`address/${r.rental}`)} isExternalLink type="supporting">
+                    エスクロー <Code color="inherit">{shorten(r.rental)}</Code>
+                  </Link>
+                </HStack>
+                <StatusBox status={action[r.rental] ?? { kind: 'idle' }} />
+              </VStack>
+            </Fragment>
           )
         })}
-      </div>
-    </section>
+      </VStack>
+    </VStack>
   )
 }

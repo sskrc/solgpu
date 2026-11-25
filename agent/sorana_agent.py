@@ -1,16 +1,16 @@
 """
-Sorana 貸し手エージェント
+Amari 貸し手エージェント
 =========================
 GPU を貸し出す人の PC で動かすプログラムです。
 
   1. GPU の性能をベンチマークで測り、1 分あたりの価格を決める
-  2. 借り手のブラウザから届く「予約」「支払い確認」に応答する
-  3. Devnet 上で支払いを確認できたら、専用フォルダで Jupyter Lab を起動し、
-     借り手だけが知っている URL を発行する
-  4. レンタル時間が終わったら Jupyter（とその中のプログラム）を強制終了する
+  2. 出品リンクを表示（Phantom で Amari プログラムに出品する）
+  3. 借り手が代金をエスクロー（プログラムの口座）に預けたら、専用フォルダで Jupyter Lab と
+     公開 URL を用意し、プログラムに「利用開始 (accept)」を記録する
+  4. 時間が来たら Jupyter を停止し、「精算 (settle)」して代金を貸し手のウォレットへ送る
 
-秘密鍵は一切持ちません。Solana からはデータを「読む」だけです。
-出品（オンチェーンへの登録）は、起動時に表示されるリンクから Phantom で署名します。
+エージェントは自分の鍵 (operator, data/operator.json) を持ちますが、プログラムが許すのは
+「利用開始」「精算」「URL 更新」だけで、代金の行き先はプログラムで固定されています。
 
 使い方:  README の「GPU を貸す」を参照
 """
@@ -20,47 +20,33 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
-import re
 import secrets
 import shutil
-import signal
-import socket
 import subprocess
 import sys
 import threading
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "1"
+from chain import PROGRAM_ID, Chain, build_ix, load_or_create_operator
+from runtime import free_port, kill_tree, log, popen_group, run_benchmark, start_tunnel
+
+VERSION = "2"
 AGENT_DIR = Path(__file__).resolve().parent
 DATA_DIR = AGENT_DIR / "data"
 STATE_FILE = DATA_DIR / "state.json"
+OPERATOR_FILE = DATA_DIR / "operator.json"
 SESSIONS_DIR = AGENT_DIR / "sessions"
-
 DEVNET_RPC = "https://api.devnet.solana.com"
-MEMO_PROGRAM = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
-
-# 価格ルール（フロントエンドの表示と同じ）: 計測 TFLOPS × 2,000 lamports / 分、最低 10,000 lamports / 分
-LAMPORTS_PER_TFLOPS_MINUTE = 2_000
-MIN_LAMPORTS_PER_MINUTE = 10_000
 MAX_MINUTES = 240
-RESERVATION_SECONDS = 5 * 60  # 予約してから支払うまでの猶予
-RESERVATION_KEEP_SECONDS = 60 * 60  # 支払い済みの予約を受け付ける期間（使用中で待たされた場合など）
-MAX_TX_AGE_SECONDS = 60 * 60
+MIN_OPERATOR_LAMPORTS = 1_000_000  # 0.001 SOL（accept / settle の手数料用）
 
 LOCK = threading.RLock()
 
 
-def log(*args):
-    print(time.strftime("[%H:%M:%S]"), *args, flush=True)
-
-
-# ---------------------------------------------------------------- 状態の保存
 def load_state() -> dict:
     if STATE_FILE.exists():
         try:
@@ -77,271 +63,17 @@ def save_state(state: dict) -> None:
     tmp.replace(STATE_FILE)
 
 
-# ---------------------------------------------------------------- ベンチマーク
-def run_benchmark() -> dict:
-    """行列積 (fp16 / GPU が無ければ fp32 CPU) の速度を TFLOPS で測る"""
-    try:
-        import torch
-    except ImportError:
-        log("PyTorch が見つかりません。README の手順でインストールしてください。")
-        raise SystemExit(1)
-
-    if torch.cuda.is_available():
-        backend, device, name = "cuda", torch.device("cuda"), torch.cuda.get_device_name(0)
-        sync = torch.cuda.synchronize
-    elif hasattr(torch, "xpu") and torch.xpu.is_available():
-        backend, device, name = "xpu", torch.device("xpu"), torch.xpu.get_device_name(0)
-        sync = torch.xpu.synchronize
-    elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-        backend, device, name = "mps", torch.device("mps"), "Apple GPU"
-        sync = torch.mps.synchronize
-    else:
-        import platform
-
-        backend, device, name = "cpu", torch.device("cpu"), f"CPU ({platform.processor() or 'unknown'})"
-        sync = lambda: None  # noqa: E731
-
-    dtype = torch.float32 if backend == "cpu" else torch.float16
-    n = 2048 if backend == "cpu" else 4096
-    log(f"ベンチマーク中: {name} ({backend}, {dtype}, {n}x{n} 行列積)…")
-    a = torch.randn(n, n, device=device, dtype=dtype)
-    b = torch.randn(n, n, device=device, dtype=dtype)
-    for _ in range(3):  # ウォームアップ
-        a @ b
-    sync()
-    iters = 5 if backend == "cpu" else 20
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        a @ b
-    sync()
-    elapsed = time.perf_counter() - t0
-    tflops = 2 * n**3 * iters / elapsed / 1e12
-    del a, b
-    price = max(MIN_LAMPORTS_PER_MINUTE, round(tflops * LAMPORTS_PER_TFLOPS_MINUTE))
-    result = {
-        "gpu": name,
-        "backend": backend,
-        "dtype": str(dtype).replace("torch.", ""),
-        "tflops": round(tflops, 2),
-        "lamportsPerMinute": price,
-        "measuredAt": int(time.time()),
-    }
-    log(f"結果: {result['tflops']} TFLOPS → {price} lamports/分 ({price / 1e9:.6f} SOL/分)")
-    return result
-
-
-# ---------------------------------------------------------------- Solana RPC（読み取りのみ）
-def rpc(method: str, params: list, rpc_url: str, retries: int = 5):
-    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
-    delay = 1.0
-    for attempt in range(retries):
-        req = urllib.request.Request(rpc_url, data=body, headers={"Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=20) as r:
-                data = json.loads(r.read())
-            if "error" in data:
-                raise RuntimeError(data["error"].get("message", str(data["error"])))
-            return data["result"]
-        except urllib.error.HTTPError as e:
-            if e.code == 429 and attempt < retries - 1:
-                time.sleep(delay)
-                delay *= 2
-                continue
-            raise
-    raise RuntimeError("RPC retry exhausted")
-
-
-def get_tx(signature: str, rpc_url: str):
-    for _ in range(6):  # 送信直後はまだ見えないことがあるので少し待つ
-        tx = rpc(
-            "getTransaction",
-            [signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
-            rpc_url,
-        )
-        if tx:
-            return tx
-        time.sleep(2)
-    return None
-
-
-def memos_of(tx) -> list[str]:
-    out = []
-    for ix in tx["transaction"]["message"]["instructions"]:
-        if ix.get("programId") == MEMO_PROGRAM:
-            parsed = ix.get("parsed")
-            if isinstance(parsed, str):
-                out.append(parsed)
-    return out
-
-
-def fee_payer_of(tx) -> str:
-    key = tx["transaction"]["message"]["accountKeys"][0]
-    return key["pubkey"] if isinstance(key, dict) else key
-
-
-def received_lamports(tx, address: str) -> int:
-    keys = [k["pubkey"] if isinstance(k, dict) else k for k in tx["transaction"]["message"]["accountKeys"]]
-    if address not in keys:
-        return 0
-    i = keys.index(address)
-    return tx["meta"]["postBalances"][i] - tx["meta"]["preBalances"][i]
-
-
-def parse_memo(memos: list[str], kind: str) -> dict | None:
-    prefix = f"sorana:v1:{kind}:"
-    for m in memos:
-        if m.startswith(prefix):
-            try:
-                return json.loads(m[len(prefix):])
-            except json.JSONDecodeError:
-                return None
-    return None
-
-
-# ---------------------------------------------------------------- プロセス管理
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def kill_tree(proc: subprocess.Popen | None) -> None:
-    """プロセスを子プロセスごと終了（Windows では Jupyter のカーネルが残らないよう /T を使う）"""
-    if not proc or proc.poll() is not None:
-        return
-    try:
-        if os.name == "nt":
-            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
-        else:
-            os.killpg(proc.pid, signal.SIGKILL)
-    except Exception as e:
-        log("終了処理でエラー:", e)
-        proc.kill()
-
-
-_JOB = None
-
-
-def _windows_job():
-    """Windows のジョブオブジェクト: エージェントが異常終了・ウィンドウを閉じた場合でも、
-    起動した Jupyter / cloudflared（とその子プロセス）を OS が自動で終了させる"""
-    global _JOB
-    if _JOB is not None or os.name != "nt":
-        return _JOB
-    import ctypes
-    from ctypes import wintypes
-
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.CreateJobObjectW.restype = wintypes.HANDLE
-
-    class BASIC(ctypes.Structure):
-        _fields_ = [
-            ("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
-            ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
-            ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
-            ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD),
-        ]
-
-    class IO(ctypes.Structure):
-        _fields_ = [(n, ctypes.c_uint64) for n in ("R", "W", "O", "RB", "WB", "OB")]
-
-    class EXT(ctypes.Structure):
-        _fields_ = [
-            ("Basic", BASIC), ("Io", IO), ("ProcessMemoryLimit", ctypes.c_size_t),
-            ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t),
-            ("PeakJobMemoryUsed", ctypes.c_size_t),
-        ]
-
-    job = k32.CreateJobObjectW(None, None)
-    info = EXT()
-    info.Basic.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-    ok = k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))  # 9 = ExtendedLimitInformation
-    _JOB = (k32, job) if (job and ok) else False
-    return _JOB
-
-
-def popen_group(cmd: list[str], **kw) -> subprocess.Popen:
-    if os.name == "nt":
-        kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-    else:
-        kw["start_new_session"] = True
-    proc = subprocess.Popen(cmd, **kw)
-    if os.name == "nt":
-        try:
-            job = _windows_job()
-            if job:
-                k32, h = job
-                k32.AssignProcessToJobObject(h, int(proc._handle))  # type: ignore[attr-defined]
-        except Exception as e:
-            log("ジョブオブジェクトへの登録に失敗:", e)
-    return proc
-
-
-def find_cloudflared() -> str | None:
-    found = shutil.which("cloudflared")
-    if found:
-        return found
-    for p in [
-        r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
-        r"C:\Program Files\cloudflared\cloudflared.exe",
-        os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"),
-    ]:
-        if os.path.exists(p):
-            return p
-    return None
-
-
-def start_tunnel(port: int) -> tuple[subprocess.Popen, str]:
-    """Cloudflare の Quick Tunnel で localhost:port を https://xxxx.trycloudflare.com として公開"""
-    exe = find_cloudflared()
-    if not exe:
-        raise RuntimeError("cloudflared が見つかりません（README の手順でインストールしてください）")
-    proc = popen_group(
-        [exe, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    url_holder: list[str] = []
-    registered = threading.Event()
-
-    def reader():
-        for line in proc.stderr:  # type: ignore[union-attr]
-            m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
-            if m and not url_holder:
-                url_holder.append(m.group(0))
-            if "Registered tunnel connection" in line:
-                registered.set()
-
-    threading.Thread(target=reader, daemon=True).start()
-    # URL の発行と、Cloudflare との接続確立の両方を待つ。
-    # （準備前に URL へアクセスすると「存在しない」という DNS 結果がこの PC に
-    #   しばらくキャッシュされてしまうため、ここでは自分からアクセスしない）
-    deadline = time.time() + 60
-    while time.time() < deadline and not (url_holder and registered.is_set()):
-        if proc.poll() is not None:
-            raise RuntimeError("cloudflared が終了しました")
-        time.sleep(0.1)
-    if not url_holder:
-        kill_tree(proc)
-        raise RuntimeError("トンネル URL を取得できませんでした")
-    time.sleep(3)  # DNS が行き渡るまで少し待つ
-    return proc, url_holder[0]
-
-
-# ---------------------------------------------------------------- レンタルセッション
 class Session:
-    def __init__(self, signature: str, secret_hash: str, minutes: int, renter: str):
-        self.signature = signature
-        self.secret_hash = secret_hash
-        self.minutes = minutes
-        self.renter = renter
+    def __init__(self, rental: str, data: dict):
+        self.rental = rental
+        self.data = data  # オンチェーンの Rental アカウントの内容
+        self.secret_hash: bytes = data["secret_hash"]
+        self.minutes: int = data["minutes"]
         self.status = "starting"  # starting -> ready -> ended / error
         self.error = ""
         self.url = ""
         self.expires_at = 0
+        self.settled = ""
         self.jupyter: subprocess.Popen | None = None
         self.tunnel: subprocess.Popen | None = None
 
@@ -352,6 +84,7 @@ class Session:
             "url": self.url if self.status == "ready" else "",
             "minutes": self.minutes,
             "expiresAt": self.expires_at,
+            "settleSignature": self.settled,
             "now": int(time.time()),
         }
 
@@ -359,72 +92,69 @@ class Session:
 class Agent:
     def __init__(self, args):
         self.args = args
-        self.rpc_url = args.rpc
+        self.chain = Chain(args.rpc)
         self.state = load_state()
-        self.state.setdefault("usedSignatures", [])
+        self.operator = load_or_create_operator(OPERATOR_FILE)
         self.public_url = f"http://127.0.0.1:{args.port}"
-        # 出品リンクにだけ含まれる使い捨てのコード。オンチェーンにはハッシュしか書かないので、
-        # 他人が出品トランザクションを真似して受取先を乗っ取ることはできない
+        # 出品リンクにだけ含まれる使い捨てのコード（他人が勝手にこのエージェントを自分の出品に紐付けるのを防ぐ）
         self.activation_code = secrets.token_hex(16)
         self.activation_used = False
-        self.reservations: dict[str, dict] = {}  # id -> {created, renter}
+        self.listing: dict | None = None  # 紐付いている出品（オンチェーンの内容）
         self.session: Session | None = None
-        self.sessions_by_sig: dict[str, Session] = {}
+        self.sessions: dict[str, Session] = {}
         self.self_tunnel: subprocess.Popen | None = None
+        self._balance: int | None = None
+        self._balance_at = 0.0
+        self._balance_refreshing = False
 
-    # ----- 情報
-    def busy_info(self) -> tuple[bool, int]:
+    # ------------------------------------------------------------ 共通
+    @property
+    def operator_address(self) -> str:
+        return str(self.operator.pubkey())
+
+    def check_secret(self, s: Session, secret: str) -> None:
+        if not secrets.compare_digest(hashlib.sha256(secret.encode()).digest(), s.secret_hash):
+            raise PermissionError("秘密の値が一致しません（支払った本人のブラウザから操作してください）")
+
+    def operator_balance(self) -> int | None:
+        """/info を速く返すため、残高は 30 秒キャッシュし、更新は裏で行う"""
         now = time.time()
-        if self.session and self.session.status in ("starting", "ready"):
-            return True, self.session.expires_at or int(now + self.session.minutes * 60)
-        for r in self.reservations.values():
-            if not r["paid"] and now - r["created"] < RESERVATION_SECONDS:
-                return True, int(r["created"] + RESERVATION_SECONDS)
-        return False, 0
+        if now - self._balance_at > 30 and not self._balance_refreshing:
+            self._balance_refreshing = True
+
+            def refresh():
+                try:
+                    self._balance = self.chain.balance(self.operator_address)
+                    self._balance_at = time.time()
+                except Exception:
+                    pass
+                finally:
+                    self._balance_refreshing = False
+
+            threading.Thread(target=refresh, daemon=True).start()
+        return self._balance
 
     def info(self) -> dict:
-        bench = self.state["bench"]
-        busy, until = self.busy_info()
+        b = self.state["bench"]
+        op_balance = self.operator_balance()
         return {
             "sorana": VERSION,
+            "programId": str(PROGRAM_ID),
             "agentUrl": self.public_url,
-            "gpu": bench["gpu"],
-            "backend": bench["backend"],
-            "dtype": bench["dtype"],
-            "tflops": bench["tflops"],
-            "lamportsPerMinute": bench["lamportsPerMinute"],
-            "payout": self.state.get("payout"),
-            "busy": busy,
-            "busyUntil": until,
+            "gpu": b["gpu"],
+            "backend": b["backend"],
+            "dtype": b["dtype"],
+            "tflops": b["tflops"],
+            "lamportsPerMinute": b["lamportsPerMinute"],
+            "operator": self.operator_address,
+            "operatorBalance": op_balance,
+            "listing": self.state.get("listing"),
+            "owner": self.listing["owner"] if self.listing else None,
+            "busy": bool(self.session and self.session.status in ("starting", "ready")),
             "maxMinutes": MAX_MINUTES,
         }
 
-    # ----- 出品の有効化: Phantom で署名された出品トランザクションを確認し、受取アドレスを決める
-    def activate(self, body: dict) -> dict:
-        sig = str(body.get("signature", ""))
-        code = str(body.get("code", ""))
-        if not secrets.compare_digest(code, self.activation_code):
-            raise PermissionError("認証コードが一致しません（エージェントに表示された最新のリンクを開いてください）")
-        if self.activation_used:
-            raise PermissionError("この出品リンクは使用済みです。出品し直すにはエージェントを再起動してください")
-        tx = get_tx(sig, self.rpc_url)
-        if not tx or tx["meta"]["err"]:
-            raise ValueError("出品トランザクションが見つからないか、失敗しています")
-        memo = parse_memo(memos_of(tx), "list")
-        code_hash = hashlib.sha256(code.encode()).hexdigest()
-        if not memo or memo.get("agent") != self.public_url or memo.get("codeHash") != code_hash:
-            raise ValueError("出品内容がこのエージェントと一致しません（リンクを開き直してください）")
-        with LOCK:
-            if self.activation_used:
-                raise PermissionError("この出品リンクは使用済みです")
-            self.activation_used = True
-            self.state["payout"] = fee_payer_of(tx)
-            self.state["listingSignature"] = sig
-            save_state(self.state)
-        log(f"出品が有効になりました。受取ウォレット: {self.state['payout']}")
-        return self.info()
-
-    # ----- 出品リンクのコードが正しいかを、署名（手数料）の前に確認する
+    # ------------------------------------------------------------ 出品
     def check_code(self, body: dict) -> dict:
         if not secrets.compare_digest(str(body.get("code", "")), self.activation_code):
             raise PermissionError(
@@ -434,106 +164,139 @@ class Agent:
             raise PermissionError("この出品リンクは使用済みです。出品し直すにはエージェントを再起動してください")
         return {"ok": True}
 
-    # ----- 予約
-    def reserve(self, body: dict) -> dict:
-        if not self.state.get("payout"):
-            raise ValueError("このGPUはまだ出品が完了していません")
-        renter = str(body.get("renter", ""))
+    def activate(self, body: dict) -> dict:
+        """Phantom で作成した出品 (Listing) を、このエージェントに紐付ける"""
+        self.check_code(body)
+        address = str(body.get("listing", ""))
+        listing = None
+        for _ in range(5):  # 作成直後はまだ見えないことがある
+            listing = self.chain.account("Listing", address)
+            if listing:
+                break
+            time.sleep(2)
+        if not listing:
+            raise ValueError("出品アカウントが見つかりません")
+        if listing["operator"] != self.operator_address:
+            raise PermissionError("この出品は別のエージェントの鍵を指定しています")
+        if listing["agent_url"] != self.public_url:
+            raise ValueError("出品の URL がこのエージェントと一致しません（リンクを開き直してください）")
         with LOCK:
-            # 同じ借り手が支払いをキャンセルして予約し直す場合は、前の未払い予約を取り消す
-            # （支払い済みかもしれない古い予約は、後から利用開始できるよう残しておく）
-            if renter:
-                for k, v in list(self.reservations.items()):
-                    if v["renter"] == renter and not v["paid"] and time.time() - v["created"] < RESERVATION_SECONDS:
-                        v["paid"] = True  # 「予約中」扱いをやめる（支払い済みならこの ID で claim 可能）
-            busy, until = self.busy_info()
-            if busy:
-                raise ValueError("このGPUは現在使用中か、他の人が予約中です")
-            rid = secrets.token_hex(8)
-            self.reservations[rid] = {"created": time.time(), "renter": renter, "paid": False}
-            # 古い予約を掃除
-            for k in [k for k, v in self.reservations.items() if time.time() - v["created"] > RESERVATION_KEEP_SECONDS]:
-                del self.reservations[k]
-        log(f"予約を受け付けました: {rid}")
-        return {
-            "reservationId": rid,
-            "expiresAt": int(time.time() + RESERVATION_SECONDS),
-            "payout": self.state["payout"],
-            "lamportsPerMinute": self.state["bench"]["lamportsPerMinute"],
-        }
+            self.activation_used = True
+            self.listing = listing
+            self.state["listing"] = address
+            save_state(self.state)
+        log(f"出品と紐付きました: {address}（受取ウォレット {listing['owner']}）")
+        return self.info()
 
-    # ----- 支払い確認 → セッション開始
+    def restore_listing(self) -> None:
+        """前回紐付けた出品があれば、新しい URL をオンチェーンに書き込んで受付を再開する"""
+        address = self.state.get("listing")
+        if not address:
+            return
+        listing = self.chain.account("Listing", address)
+        if not listing or listing["operator"] != self.operator_address:
+            log("前回の出品が見つからない（取り下げ済み）ため、紐付けを解除しました")
+            self.state.pop("listing", None)
+            save_state(self.state)
+            return
+        self.listing = listing
+        self.settle_leftover(address, listing)
+        if self.chain.balance(self.operator_address) < MIN_OPERATOR_LAMPORTS:
+            log("⚠️ エージェントの鍵の残高が足りないため、URL を更新できません（出品リンクから出品し直してください）")
+            return
+        try:
+            self.chain.send(
+                self.operator,
+                [build_ix("update_agent", {"authority": self.operator.pubkey(), "listing": address},
+                          {"agent_url": self.public_url, "active": True})],
+            )
+            self.listing = self.chain.account("Listing", address)
+            self.activation_used = True  # 既存の出品をそのまま使う
+            log(f"前回の出品 {address} の URL を更新し、受付を再開しました")
+        except Exception as e:
+            log("出品の URL 更新に失敗:", e)
+
+    def settle_leftover(self, address: str, listing: dict) -> None:
+        """前回の終了処理が途中だったレンタル（エージェント停止など）があれば精算する"""
+        cur = listing["current_rental"]
+        if cur == "11111111111111111111111111111111":
+            return
+        r = self.chain.account("Rental", cur)
+        if r and r["status"] == "Active" and self.chain.chain_time() >= r["ends_at"]:
+            log("前回の未精算レンタルを精算します…")
+            self.settle(cur, r)
+
+    def deactivate(self) -> None:
+        if not self.state.get("listing"):
+            return
+        try:
+            self.chain.send(
+                self.operator,
+                [build_ix("update_agent", {"authority": self.operator.pubkey(), "listing": self.state["listing"]},
+                          {"agent_url": self.public_url, "active": False})],
+                timeout=20,
+            )
+            log("出品の受付を停止しました（次回起動時に自動で再開します）")
+        except Exception as e:
+            log("受付停止の書き込みに失敗（そのままでも問題ありません）:", e)
+
+    # ------------------------------------------------------------ レンタル
     def claim(self, body: dict) -> dict:
-        sig = str(body.get("signature", ""))
+        """借り手から「支払った（エスクローに預けた）ので開始して」と依頼される"""
+        address = str(body.get("rental", ""))
         secret = str(body.get("secret", ""))
         with LOCK:
-            existing = self.sessions_by_sig.get(sig)
+            existing = self.sessions.get(address)
         if existing:
-            if hashlib.sha256(secret.encode()).hexdigest() != existing.secret_hash:
-                raise PermissionError("秘密の値が一致しません")
+            self.check_secret(existing, secret)
             return existing.public()
-        if sig in self.state["usedSignatures"]:
-            raise ValueError("この支払いはすでに使用済みです")
+        if not self.state.get("listing"):
+            raise ValueError("このエージェントはまだ出品が完了していません")
 
-        tx = get_tx(sig, self.rpc_url)
-        if not tx:
-            raise ValueError("支払いトランザクションが見つかりません（少し待って再試行してください）")
-        if tx["meta"]["err"]:
-            raise ValueError("支払いトランザクションが失敗しています")
-        if tx.get("blockTime") and time.time() - tx["blockTime"] > MAX_TX_AGE_SECONDS:
-            raise ValueError("支払いから時間が経ちすぎています")
-        memo = parse_memo(memos_of(tx), "rent")
-        if not memo:
-            raise ValueError("レンタル用のメモが見つかりません")
-        rid, minutes, h = memo.get("r"), int(memo.get("m", 0)), memo.get("h")
-        if hashlib.sha256(secret.encode()).hexdigest() != h:
-            raise PermissionError("秘密の値が一致しません（支払った本人のブラウザから操作してください）")
-        if not (1 <= minutes <= MAX_MINUTES):
-            raise ValueError("レンタル時間が不正です")
-        need = minutes * self.state["bench"]["lamportsPerMinute"]
-        got = received_lamports(tx, self.state["payout"])
-        if got < need:
-            raise ValueError(f"支払額が足りません（必要 {need} lamports / 受取 {got} lamports）")
-
+        r = None
+        for _ in range(5):  # 支払い直後は、RPC のノードによってはまだ見えないことがある
+            r = self.chain.account("Rental", address)
+            if r:
+                break
+            time.sleep(2)
+        if not r:
+            raise ValueError("レンタルが見つかりません（キャンセル・返金・精算済みの可能性があります）")
+        if r["listing"] != self.state["listing"]:
+            raise ValueError("このレンタルは別の GPU のものです")
+        if r["status"] != "Pending":
+            raise ValueError("このレンタルはすでに開始されています")
+        s = Session(address, r)
+        self.check_secret(s, secret)
+        if self.chain.chain_time() > r["accept_deadline"] - 20:
+            raise ValueError("開始の期限を過ぎています。「マイレンタル」から返金を受けてください")
         with LOCK:
-            res = self.reservations.get(rid)
-            if not res:
-                raise ValueError("予約が見つかりません（エージェントが再起動された可能性があります）")
             if self.session and self.session.status in ("starting", "ready"):
-                res["paid"] = True  # 予約は保持し、後で再試行できるようにする
-                raise ValueError("GPU は別のレンタルで使用中です。終了後に「再試行」で開始できます")
-            if sig in self.state["usedSignatures"]:
-                raise ValueError("この支払いはすでに使用済みです")
-            self.state["usedSignatures"].append(sig)
-            save_state(self.state)
-            del self.reservations[rid]
-            session = Session(sig, h, minutes, fee_payer_of(tx))
-            self.session = session
-            self.sessions_by_sig[sig] = session
-        log(f"支払いを確認: {got / 1e9:.6f} SOL / {minutes} 分 / 借り手 {session.renter}")
-        threading.Thread(target=self.run_session, args=(session,), daemon=True).start()
-        return session.public()
+                raise ValueError("GPU は別のレンタルで使用中です")
+            self.session = s
+            self.sessions[address] = s
+        log(f"レンタルを受け付けました: {r['minutes']} 分 / 預かり {r['amount'] / 1e9:.6f} SOL / 借り手 {r['renter']}")
+        threading.Thread(target=self.run_session, args=(s,), daemon=True).start()
+        return s.public()
 
     def session_status(self, body: dict) -> dict:
-        sig = str(body.get("signature", ""))
-        secret = str(body.get("secret", ""))
-        s = self.sessions_by_sig.get(sig)
+        s = self.sessions.get(str(body.get("rental", "")))
         if not s:
             raise ValueError("セッションが見つかりません")
-        if hashlib.sha256(secret.encode()).hexdigest() != s.secret_hash:
-            raise PermissionError("秘密の値が一致しません")
+        self.check_secret(s, str(body.get("secret", "")))
         return s.public()
 
     def run_session(self, s: Session) -> None:
+        workdir = SESSIONS_DIR / s.rental[:16]
+        accepted = False
         try:
-            workdir = SESSIONS_DIR / s.signature[:16]
             workdir.mkdir(parents=True, exist_ok=True)
+            b = self.state["bench"]
             (workdir / "README_GPU.md").write_text(
-                f"# Sorana GPU レンタル\n\nGPU: {self.state['bench']['gpu']} ({self.state['bench']['backend']})\n\n"
+                f"# Amari GPU レンタル\n\nGPU: {b['gpu']} ({b['backend']})\n\n"
                 "```python\nimport torch\n"
-                f"device = '{self.state['bench']['backend']}'\n"
+                f"device = '{b['backend']}'\n"
                 "x = torch.randn(4096, 4096, device=device)\nprint((x @ x).sum())\n```\n\n"
-                f"レンタル時間は {s.minutes} 分です。時間になると自動で終了し、保存していないデータは失われます。\n",
+                f"レンタル時間は {s.minutes} 分です。時間になると自動で終了し、このフォルダのファイルは削除されます。\n",
                 encoding="utf-8",
             )
             port = free_port()
@@ -559,7 +322,6 @@ class Agent:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            # Jupyter の起動を待つ
             for _ in range(120):
                 if s.jupyter.poll() is not None:
                     raise RuntimeError("Jupyter が起動できませんでした")
@@ -571,10 +333,16 @@ class Agent:
             else:
                 raise RuntimeError("Jupyter の起動がタイムアウトしました")
 
+            # GPU 環境の準備ができたので、オンチェーンに「利用開始」を記録（ここから時間を数える）
+            self.chain.send(
+                self.operator,
+                [build_ix("accept", {"operator": self.operator.pubkey(), "listing": self.state["listing"], "rental": s.rental})],
+            )
+            accepted = True
             s.url = f"{base}/lab?token={token}"
-            s.expires_at = int(time.time() + s.minutes * 60)  # 使えるようになった時点から課金時間を数える
+            s.expires_at = int(time.time() + s.minutes * 60)
             s.status = "ready"
-            log(f"セッション開始: {s.minutes} 分 ({time.strftime('%H:%M:%S', time.localtime(s.expires_at))} まで)")
+            log(f"利用開始: {s.minutes} 分 ({time.strftime('%H:%M:%S', time.localtime(s.expires_at))} まで)")
             while time.time() < s.expires_at:
                 if s.jupyter.poll() is not None:
                     raise RuntimeError("Jupyter が予期せず終了しました")
@@ -585,15 +353,42 @@ class Agent:
             s.status = "error"
             s.error = str(e)
             log("セッションでエラー:", e)
+            if not accepted:
+                log("利用開始前のエラーのため、借り手は全額返金を受けられます")
         finally:
             kill_tree(s.tunnel)
             kill_tree(s.jupyter)
-            # 借り手のファイルを削除（プロセス終了直後はファイルがロックされていることがあるので数回試す）
             for _ in range(10):
-                shutil.rmtree(SESSIONS_DIR / s.signature[:16], ignore_errors=True)
-                if not (SESSIONS_DIR / s.signature[:16]).exists():
+                shutil.rmtree(workdir, ignore_errors=True)
+                if not workdir.exists():
                     break
                 time.sleep(1)
+        if accepted:
+            self.settle(s.rental, s.data, s)
+
+    def settle(self, address: str, r: dict, s: Session | None = None) -> None:
+        """終了時刻を過ぎたら精算（代金はプログラムが貸し手へ送る）。ブロックチェーンの時計が遅れていれば待って再試行"""
+        for attempt in range(60):
+            try:
+                sig = self.chain.send(
+                    self.operator,
+                    [build_ix("settle", {
+                        "caller": self.operator.pubkey(), "listing": self.state["listing"], "rental": address,
+                        "owner": r["owner"], "renter": r["renter"],
+                    })],
+                )
+                if s:
+                    s.settled = sig
+                log(f"精算しました: {r['amount'] / 1e9:.6f} SOL が受取ウォレットに届きました ({sig[:12]}…)")
+                return
+            except Exception as e:
+                if self.chain.account("Rental", address) is None:
+                    log("このレンタルはすでに精算済みです")
+                    return
+                if attempt == 0 or attempt % 6 == 5:
+                    log("精算を再試行します:", str(e).splitlines()[0])
+                time.sleep(10)
+        log("⚠️ 精算できませんでした。Web アプリの「マイレンタル」または出品画面から誰でも精算できます")
 
     def shutdown(self) -> None:
         if self.session:
@@ -601,13 +396,13 @@ class Agent:
                 self.session.status = "ended"
             kill_tree(self.session.tunnel)
             kill_tree(self.session.jupyter)
+        self.deactivate()
         kill_tree(self.self_tunnel)
 
 
-# ---------------------------------------------------------------- HTTP サーバー
 def make_handler(agent: Agent):
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *a):  # アクセスログは表示しない
+        def log_message(self, *a):
             pass
 
         def send_json(self, code: int, obj: dict):
@@ -615,8 +410,6 @@ def make_handler(agent: Agent):
             self.send_response(code)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
-            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -631,14 +424,16 @@ def make_handler(agent: Agent):
 
         def do_GET(self):
             if self.path.split("?")[0] in ("/", "/info"):
-                return self.send_json(200, agent.info())
+                try:
+                    return self.send_json(200, agent.info())
+                except Exception as e:
+                    return self.send_json(500, {"error": str(e)})
             self.send_json(404, {"error": "not found"})
 
         def do_POST(self):
             routes = {
-                "/activate": agent.activate,
                 "/check-code": agent.check_code,
-                "/reserve": agent.reserve,
+                "/activate": agent.activate,
                 "/claim": agent.claim,
                 "/session": agent.session_status,
             }
@@ -661,21 +456,37 @@ def make_handler(agent: Agent):
 
 
 def main():
-    # 出力先がパイプやファイルでも日本語が化けないようにする
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8")
         except Exception:
             pass
-    p = argparse.ArgumentParser(description="Sorana GPU 貸し手エージェント (Devnet)")
+    p = argparse.ArgumentParser(description="Amari GPU 貸し手エージェント (Devnet)")
     p.add_argument("--port", type=int, default=8765)
-    p.add_argument("--site", default="http://localhost:5173/", help="Sorana の Web アプリの URL（出品リンク用）")
+    p.add_argument("--site", default="http://localhost:5173/", help="Amari の Web アプリの URL（出品リンク用）")
     p.add_argument("--no-tunnel", action="store_true", help="インターネットに公開せず、この PC 内だけで動かす")
     p.add_argument("--i-understand-the-risk", action="store_true", help="外部公開のリスクを理解したうえで公開する")
     p.add_argument("--rebench", action="store_true", help="ベンチマークをやり直す")
     p.add_argument("--no-browser", action="store_true", help="出品リンクをブラウザで自動的に開かない")
     p.add_argument("--rpc", default=DEVNET_RPC)
+    p.add_argument("--data-dir", help="鍵と設定の保存先（テスト用。通常は agent/data）")
     args = p.parse_args()
+    if args.data_dir:
+        global DATA_DIR, STATE_FILE, OPERATOR_FILE
+        DATA_DIR = Path(args.data_dir).resolve()
+        STATE_FILE, OPERATOR_FILE = DATA_DIR / "state.json", DATA_DIR / "operator.json"
+
+    # 借り手に GPU 環境を渡すには Jupyter と PyTorch が必要。別の Python で起動されていないか確認
+    import importlib.util
+
+    missing = [m for m in ("jupyterlab", "torch") if importlib.util.find_spec(m) is None]
+    if missing:
+        print(
+            f"\n⚠️  この Python ({sys.executable}) には {', '.join(missing)} が入っていません。\n"
+            "   エージェントは start.bat（agent フォルダの .venv の Python）から起動してください。\n"
+            "   まだ準備していない場合は、先に setup.bat を実行します。\n"
+        )
+        raise SystemExit(1)
 
     if not args.no_tunnel and not args.i_understand_the_risk:
         print(
@@ -696,27 +507,40 @@ def main():
         b = agent.state["bench"]
         log(f"保存済みのベンチマーク: {b['gpu']} {b['tflops']} TFLOPS → {b['lamportsPerMinute']} lamports/分（やり直すには --rebench）")
 
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(agent))
+    class Server(ThreadingHTTPServer):
+        # Windows では既定設定だと同じポートを 2 つのエージェントが掴めてしまうので禁止する
+        allow_reuse_address = False
+
+    try:
+        server = Server(("127.0.0.1", args.port), make_handler(agent))
+    except OSError:
+        log(f"ポート {args.port} はすでに使われています。別のエージェントが起動中ではありませんか？（別のポートは --port で指定）")
+        raise SystemExit(1)
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     try:
         if not args.no_tunnel:
             log("インターネット公開用のトンネルを作成中…")
             agent.self_tunnel, agent.public_url = start_tunnel(args.port)
-        # 以前の受取アドレスは引き継ぐが、URL が変わるので出品（Phantom 署名）は毎回やり直す
+        agent.restore_listing()
         site = args.site if args.site.endswith("/") else args.site + "/"
         link = f"{site}#lend?agent={urllib.parse.quote(agent.public_url, safe='')}&code={agent.activation_code}"
         print("\n" + "=" * 70)
-        print(" Sorana エージェント起動完了")
-        print(f"   GPU        : {agent.state['bench']['gpu']}")
-        print(f"   価格       : {agent.state['bench']['lamportsPerMinute'] / 1e9:.6f} SOL / 分")
-        print(f"   エージェント: {agent.public_url}")
-        print("\n 次のリンクを Phantom を入れたブラウザで開き、「出品する」を押してください:")
-        print(f"   {link}")
-        print("   （ブラウザで自動的に開きます。古いリンクは使えません）")
+        print(" Amari エージェント起動完了")
+        print(f"   GPU          : {agent.state['bench']['gpu']}")
+        print(f"   価格         : {agent.state['bench']['lamportsPerMinute'] / 1e9:.6f} SOL / 分")
+        print(f"   エージェント : {agent.public_url}")
+        print(f"   エージェント鍵: {agent.operator_address}")
+        if agent.listing and agent.activation_used:
+            print(f"\n 出品中です（{agent.state['listing']}）。このまま貸し出せます。")
+            print(" 出品の管理（取り下げなど）は Web アプリの「GPU を貸す」タブから。")
+        else:
+            print("\n 次のリンクを Phantom を入れたブラウザで開き、「出品する」を押してください:")
+            print(f"   {link}")
+            print("   （ブラウザで自動的に開きます。古いリンクは使えません）")
         print("\n 停止するには Ctrl + C")
         print("=" * 70 + "\n", flush=True)
-        if not args.no_browser:
+        if not args.no_browser and not (agent.listing and agent.activation_used):
             import webbrowser
 
             webbrowser.open(link)

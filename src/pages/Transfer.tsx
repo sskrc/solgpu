@@ -1,4 +1,10 @@
 import { useMemo, useState } from 'react'
+import { Button } from '@astryxdesign/core/Button'
+import { Code } from '@astryxdesign/core/Code'
+import { Text } from '@astryxdesign/core/Text'
+import { TextInput } from '@astryxdesign/core/TextInput'
+import { VStack } from '@astryxdesign/core/VStack'
+import { PageHeader } from '../components/PageHeader'
 import { StatusBox, type Status } from '../components/StatusBox'
 import {
   checkRentForRecipient,
@@ -52,16 +58,16 @@ export function Transfer({ wallet }: { wallet: Wallet }) {
       const signature = await signAndSend(
         wallet.phantom,
         wallet.publicKey,
-        [transferIx(wallet.publicKey, recipientKey, lamports), memoIx(wallet.publicKey, 'Sorana: direct payment')],
+        [transferIx(wallet.publicKey, recipientKey, lamports), memoIx(wallet.publicKey, 'Amari: direct payment')],
         (message) => setStatus({ kind: 'busy', message }),
       )
       setStatus({
         kind: 'success',
-        title: '送金が完了しました！',
+        title: '送金が完了しました',
         body: (
-          <p>
-            {formatSol(amountNum)} SOL → <span className="mono">{shorten(recipientKey.toBase58())}</span>
-          </p>
+          <Text>
+            {formatSol(amountNum)} SOL → <Code>{shorten(recipientKey.toBase58())}</Code>
+          </Text>
         ),
         signature,
       })
@@ -73,39 +79,49 @@ export function Transfer({ wallet }: { wallet: Wallet }) {
   }
 
   return (
-    <section className="card">
-      <h2>直接送金</h2>
-      <p className="muted small">マーケットを通さず、指定したアドレスに SOL を送ります（貸し手への追加支払いなど）。</p>
-      <div className="form">
-        <label>
-          <span>送金先ウォレットアドレス</span>
-          <input
-            className="mono"
-            placeholder="Solana のアドレス"
-            value={recipient}
-            onChange={(e) => setRecipient(e.target.value)}
-            disabled={busy}
-          />
-          {recipient && !recipientKey && <small className="err-text">アドレスの形式が正しくありません</small>}
-        </label>
-        <label>
-          <span>送金数量（SOL）</span>
-          <input
-            type="number"
-            min="0"
-            step="0.001"
-            placeholder="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            disabled={busy}
-          />
-        </label>
-      </div>
-      <button className="btn primary big" onClick={send} disabled={busy || !!validation}>
-        {busy ? '処理中…' : '送金する'}
-      </button>
-      {validation && !busy && <p className="muted small center">{validation}</p>}
+    <VStack gap={6} maxWidth={640}>
+      <PageHeader
+        title="直接送金"
+        description="マーケットを通さず、指定したアドレスに SOL を送ります（貸し手への追加支払いなど）。"
+      />
+      <VStack gap={4}>
+        <TextInput
+          label="送金先ウォレットアドレス"
+          placeholder="Solana のアドレス"
+          value={recipient}
+          onChange={setRecipient}
+          isDisabled={busy}
+          autoComplete="off"
+          hasSpellCheck={false}
+          status={recipient && !recipientKey ? { type: 'error', message: 'アドレスの形式が正しくありません' } : undefined}
+        />
+        <TextInput
+          label="送金数量"
+          placeholder="0.01"
+          inputMode="decimal"
+          value={amount}
+          onChange={setAmount}
+          isDisabled={busy}
+          description="単位は SOL"
+        />
+      </VStack>
+      <VStack gap={2}>
+        <Button
+          label={busy ? '処理中…' : '送金する'}
+          variant="primary"
+          size="lg"
+          width="100%"
+          onClick={send}
+          isDisabled={!!validation}
+          isLoading={busy}
+        />
+        {validation && !busy && (
+          <Text type="supporting" color="secondary" justify="center" display="block">
+            {validation}
+          </Text>
+        )}
+      </VStack>
       <StatusBox status={status} />
-    </section>
+    </VStack>
   )
 }

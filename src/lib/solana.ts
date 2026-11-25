@@ -9,15 +9,19 @@ import {
 } from '@solana/web3.js'
 import { Buffer } from 'buffer'
 import type { PhantomProvider } from '../phantom'
+import { programErrorMessage } from './program'
 
 // このアプリは Devnet 専用。接続先を固定しているので、Phantom の設定に関係なく Devnet に送信されます
 export const NETWORK = 'devnet'
-export const connection = new Connection(clusterApiUrl(NETWORK), 'confirmed')
-export const explorer = (path: string) => `https://explorer.solana.com/${path}?cluster=${NETWORK}`
+// ローカルの validator で試すときは .env.local に VITE_RPC_URL=http://127.0.0.1:8899 と書く
+const CUSTOM_RPC = import.meta.env.VITE_RPC_URL as string | undefined
+export const connection = new Connection(CUSTOM_RPC || clusterApiUrl(NETWORK), 'confirmed')
+export const explorer = (path: string) =>
+  CUSTOM_RPC
+    ? `https://explorer.solana.com/${path}?cluster=custom&customUrl=${encodeURIComponent(CUSTOM_RPC)}`
+    : `https://explorer.solana.com/${path}?cluster=${NETWORK}`
 
 export const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr')
-/** 出品（GPU 登録）を探すための目印アドレス。0 SOL を送ることで履歴に載せる */
-export const REGISTRY = new PublicKey('E9bQZcsyYj8pzFDKMQWUBuBoREV8pX6BgmRJazqaxSn7')
 export const FEE_BUFFER_LAMPORTS = 10_000
 
 /** 価格ルール（エージェントと同じ）: 計測 TFLOPS × 2,000 lamports / 分、最低 10,000 lamports / 分 */
@@ -104,8 +108,16 @@ export function toFriendlyError(err: unknown): FriendlyError {
       signature: err.signature,
     }
   }
-  const e = err as { code?: number; message?: string }
-  const raw = e?.message ?? String(err)
+  const e = err as { code?: number; message?: string; logs?: string[] }
+  const raw = [e?.message ?? String(err), ...(e?.logs ?? [])].join('\n')
+  if (/program that does not exist|Unsupported program id|ProgramAccountNotFound/i.test(raw)) {
+    return {
+      message: 'Amari プログラムがまだこのネットワーク（Devnet）にデプロイされていません。デプロイが完了するまで出品・レンタルはできません。',
+      detail: raw,
+    }
+  }
+  const programMsg = programErrorMessage(raw)
+  if (programMsg) return { message: programMsg, detail: raw }
   if (e?.code === 4001 || /user rejected|reject|cancel|denied/i.test(raw)) {
     return { message: 'ウォレットで承認がキャンセルされました。', detail: raw }
   }
