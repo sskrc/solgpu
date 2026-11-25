@@ -125,7 +125,7 @@ function Cover() {
             <HStack gap={2} align="center">
               <Text color="secondary">デモ</Text>
               <Text size="xl" weight="semibold">
-                sskrc.github.io/sorana/
+                sskrc.github.io/amari/
               </Text>
             </HStack>
           </VStack>
@@ -328,8 +328,8 @@ function Next() {
       <Grid columns={2} gap={8}>
         <Bullets items={['GPU 利用の証明と評判', 'ベンチマークの第三者検証', '借り手のコードを隔離']} />
         <VStack gap={3}>
-          <LinkStat label="デモ" text="sskrc.github.io/sorana" href="https://sskrc.github.io/sorana/" />
-          <LinkStat label="コード" text="github.com/sskrc/sorana" href="https://github.com/sskrc/sorana" />
+          <LinkStat label="デモ" text="sskrc.github.io/amari" href="https://sskrc.github.io/amari/" />
+          <LinkStat label="コード" text="github.com/sskrc/amari" href="https://github.com/sskrc/amari" />
           <LinkStat
             label="Solana Explorer（Devnet）"
             text={`Program ${PROGRAM.slice(0, 6)}…${PROGRAM.slice(-5)}`}
