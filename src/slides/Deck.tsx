@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import { Card } from '@astryxdesign/core/Card'
-import { Code } from '@astryxdesign/core/Code'
 import { Divider } from '@astryxdesign/core/Divider'
 import { Grid } from '@astryxdesign/core/Grid'
 import { Heading } from '@astryxdesign/core/Heading'
@@ -12,13 +11,13 @@ import { Section } from '@astryxdesign/core/Section'
 import { StatusDot } from '@astryxdesign/core/StatusDot'
 import { Table } from '@astryxdesign/core/Table'
 import { Text } from '@astryxdesign/core/Text'
-import { Token } from '@astryxdesign/core/Token'
 import { VStack } from '@astryxdesign/core/VStack'
 import notes from './notes.json'
 
 /**
  * 成果発表会（2026-11-26）の発表スライド。アプリと同じ Astryx の Gothic テーマで組む。
- * 1 枚 = 800×450（16:9）。pptx では 1px = 1.2pt になるので、本文は xl（= 24pt）以上にする。
+ * 1 枚 = 800×450（16:9）。pptx では 1px = 1.2pt になるので、文字はすべて xl（= 24pt）以上にする。
+ * フォントは全スライド共通（テーマの本文フォントのみ。等幅フォントは使わない）。
  * 【要記入】は <Todo>。中身を書き換えたら、書き出しスクリプトで pptx / pdf を作り直す。
  */
 
@@ -26,9 +25,16 @@ const W = 800
 const H = 450
 const MAIN = 7
 const PROGRAM = 'Gk1366at4C4ovkCMauacmRckfo9nbi1nyZo4rRB5Ltdt'
+/** Devnet で実際に代金を預けた取引（rent_gpu）。オンチェーンの証跡としてスライド 5 に載せる */
+const RENT_TX = '2UnQ2P6GQY7mCDHj78H4JkxfwJqkJuM2rY89MrJNRweSryr865vELqGmv9V872j66D6owDFJiKtjHKQScCCXWVok'
+const short = (s: string) => `${s.slice(0, 6)}…${s.slice(-4)}`
 
 function Todo({ label }: { label: string }) {
-  return <Token label={`要記入：${label}`} color="red" size="lg" />
+  return (
+    <Card variant="red" padding={2}>
+      <Text size="xl">要記入：{label}</Text>
+    </Card>
+  )
 }
 
 function Slide({ no, kicker, title, children }: { no: number; kicker: string; title?: string; children: ReactNode }) {
@@ -38,10 +44,10 @@ function Slide({ no, kicker, title, children }: { no: number; kicker: string; ti
       <Section variant="section" width={W} height={H} padding={6}>
         <VStack gap={4} height="100%">
           <HStack justify="between" align="center">
-            <Text type="label" color="accent">
+            <Text size="xl" weight="semibold" color="accent">
               {kicker}
             </Text>
-            <Text type="supporting" color="secondary">
+            <Text size="xl" color="secondary">
               {appendix ? '付録・投影しない' : `${String(no).padStart(2, '0')} / ${String(MAIN).padStart(2, '0')}`}
             </Text>
           </HStack>
@@ -70,7 +76,7 @@ function Bullets({ items }: { items: ReactNode[] }) {
 function LinkStat({ label, text, href }: { label: string; text: string; href: string }) {
   return (
     <VStack gap={0.5}>
-      <Text type="supporting" color="secondary">
+      <Text size="xl" color="secondary">
         {label}
       </Text>
       <Link href={href} size="xl" weight="bold">
@@ -84,16 +90,16 @@ function LinkStat({ label, text, href }: { label: string; text: string; href: st
 function Cover() {
   return (
     <VStack as="article" width={W} height={H}>
-      <Section variant="section" width={W} height={H} padding={8}>
-        <VStack gap={6} height="100%" justify="between">
+      <Section variant="section" width={W} height={H} padding={6}>
+        <VStack gap={4} height="100%" justify="between">
           <HStack justify="between" align="center">
             <HStack gap={1} align="center">
               <StatusDot variant="success" label="Devnet" />
-              <Text type="label" color="secondary">
+              <Text size="xl" color="secondary">
                 SOLANA STUDENT BOOTCAMP 成果発表会 2026.11.26
               </Text>
             </HStack>
-            <Text type="supporting" color="secondary">
+            <Text size="xl" color="secondary">
               01 / 07
             </Text>
           </HStack>
@@ -110,20 +116,20 @@ function Cover() {
               </Text>
             </VStack>
           </VStack>
-          <VStack gap={3}>
+          <VStack gap={2}>
             <Divider />
-            <HStack gap={6} align="center" wrap="wrap">
-              <HStack gap={2} align="center">
-                <Text color="secondary">チーム</Text>
-                <Todo label="チーム名" />
-              </HStack>
-              <HStack gap={2} align="center">
-                <Text color="secondary">メンバー／担当</Text>
-                <Todo label="氏名・所属・担当" />
-              </HStack>
+            <HStack gap={2} align="center">
+              <Text size="xl" color="secondary">チーム</Text>
+              <Todo label="チーム名" />
             </HStack>
             <HStack gap={2} align="center">
-              <Text color="secondary">デモ</Text>
+              <Text size="xl" color="secondary">メンバー</Text>
+              <Text size="xl" weight="semibold">
+                佐々木理一・塩川陽太（千葉工業大学 工学部）
+              </Text>
+            </HStack>
+            <HStack gap={2} align="center">
+              <Text size="xl" color="secondary">デモ</Text>
               <Text size="xl" weight="semibold">
                 sskrc.github.io/solgpu/
               </Text>
@@ -142,18 +148,22 @@ function Problem() {
       <Grid columns={2} gap={6}>
         <Bullets
           items={[
-            'ノート PC で AI を学ぶ学生',
-            'CPU で長時間待つか、クラウドを契約',
-            '一方、個人 PC の GPU はあまっている',
+            'GPU なしのノート PC で AI の課題に挑む工学部生',
+            'CPU で長時間待つか、有料クラウドを契約',
+            '一方、個人 PC の GPU は多くの時間あまり',
           ]}
         />
         <Card variant="muted" padding={6}>
           <VStack gap={3}>
-            <Text type="label" color="secondary">
-              負担を数字で
+            <Text size="xl" color="secondary">
+              同じ計算が CPU だと
             </Text>
-            <Todo label="数字を 1 つ" />
-            <Text size="xl" color="secondary">例：同じ計算が CPU だと GPU の◯倍</Text>
+            <Text size="4xl" weight="bold">
+              約 60 倍
+            </Text>
+            <Text size="xl" color="secondary">
+              4096² 行列積：CPU 2.0 秒／GPU 0.03 秒（実測）
+            </Text>
           </VStack>
         </Card>
       </Grid>
@@ -162,13 +172,18 @@ function Problem() {
 }
 
 /* ---------- 3. 解決策 ---------- */
+const SCREENS: [string, string][] = [
+  ['GPU を借りる', '性能と価格の一覧'],
+  ['マイレンタル', 'Jupyter を開く'],
+  ['GPU を貸す', '出品の手順'],
+]
 function Solution() {
   return (
     <Slide no={3} kicker="SOLUTION" title="余った GPU を分単位で">
       <Grid columns={2} gap={5}>
         <Card variant="muted" padding={6}>
           <VStack gap={3}>
-            <Text type="label" color="secondary">
+            <Text size="xl" weight="semibold" color="secondary">
               BEFORE
             </Text>
             <Text size="xl">相手を探す手段がない</Text>
@@ -177,7 +192,7 @@ function Solution() {
         </Card>
         <Card padding={6} elevation="low">
           <VStack gap={3}>
-            <Text type="label" color="accent">
+            <Text size="xl" weight="semibold" color="accent">
               AFTER
             </Text>
             <Text size="xl" weight="semibold">
@@ -189,12 +204,18 @@ function Solution() {
           </VStack>
         </Card>
       </Grid>
-      <HStack gap={3} align="center" wrap="wrap">
-        <Text color="secondary">主要画面</Text>
-        <Token label="GPU を借りる" size="lg" />
-        <Token label="マイレンタル" size="lg" />
-        <Token label="GPU を貸す" size="lg" />
-      </HStack>
+      <Grid columns={3} gap={4}>
+        {SCREENS.map(([name, what]) => (
+          <VStack key={name} gap={0.5}>
+            <Text size="xl" weight="semibold">
+              {name}
+            </Text>
+            <Text size="xl" color="secondary">
+              {what}
+            </Text>
+          </VStack>
+        ))}
+      </Grid>
     </Slide>
   )
 }
@@ -212,7 +233,7 @@ function Demo() {
       <Grid columns={4} gap={3}>
         {DEMO_STEPS.map(([t, d], i) => (
           <VStack key={t} gap={1}>
-            <Text type="label" color="accent">
+            <Text size="xl" weight="semibold" color="accent">
               STEP {i + 1}
             </Text>
             <Text size="xl" weight="bold">
@@ -242,10 +263,10 @@ function Demo() {
 /* ---------- 5. なぜ Solana ---------- */
 function WhySolana() {
   const boxes: [string, string, boolean][] = [
-    ['借り手', 'ブラウザ', false],
-    ['アプリ', 'Phantom', false],
-    ['Solana', 'エスクロー', true],
-    ['貸し手', 'GPU＋Jupyter', false],
+    ['借り手', '署名', false],
+    ['アプリ', '送金', false],
+    ['Solana', '代金を保管', true],
+    ['貸し手 GPU', 'AI 計算', false],
   ]
   return (
     <Slide no={5} kicker="WHY BLOCKCHAIN" title="知らない人同士の支払いを守る">
@@ -258,7 +279,7 @@ function WhySolana() {
                   <Text size="xl" weight="bold">
                     {a}
                   </Text>
-                  <Text size="lg" color="secondary">
+                  <Text size="xl" color="secondary">
                     {b}
                   </Text>
                 </VStack>
@@ -270,11 +291,8 @@ function WhySolana() {
       </VStack>
       <Bullets
         items={[
-          '代金はプログラムが預かる',
           '支払先・返金先は固定、未開始なら全額返金',
-          <>
-            Devnet で稼働中：Program <Code>{`${PROGRAM.slice(0, 6)}…${PROGRAM.slice(-5)}`}</Code>
-          </>,
+          `証跡：Devnet の預け入れ取引 ${short(RENT_TX)}`,
         ]}
       />
     </Slide>
@@ -282,10 +300,15 @@ function WhySolana() {
 }
 
 /* ---------- 6. AI 活用 ---------- */
+const AI_NOTES: [string, string][] = [
+  ['① 画面が AI っぽい', '→ Astryx を指定'],
+  ['② デプロイ失敗', '→ 容量を広げ再実行'],
+  ['開発期間 約 3 日', '11/23〜11/25'],
+]
 function AiUse() {
   const rows = [
     { id: 1, tool: 'Claude Code', use: 'Rust／TS／Python の実装・テスト' },
-    { id: 2, tool: 'Claude Code', use: '画面を Astryx の部品で組み直し' },
+    { id: 2, tool: 'Claude Code', use: '画面の実装（デザインは Astryx を指定）' },
   ]
   return (
     <Slide no={6} kicker="AI USAGE" title="AI 活用：Claude Code で開発">
@@ -293,29 +316,21 @@ function AiUse() {
         data={rows}
         idKey="id"
         columns={[
-          { key: 'tool', header: 'ツール', width: { type: 'pixel', value: 190 }, renderCell: (r) => <Text size="xl" weight="semibold">{r.tool}</Text> },
-          { key: 'use', header: '用途', renderCell: (r) => <Text size="xl">{r.use}</Text> },
+          { key: 'tool', header: <Text size="xl" color="secondary">ツール</Text>, width: { type: 'pixel', value: 190 }, renderCell: (r) => <Text size="xl" weight="semibold">{r.tool}</Text> },
+          { key: 'use', header: <Text size="xl" color="secondary">用途</Text>, renderCell: (r) => <Text size="xl">{r.use}</Text> },
         ]}
       />
       <Grid columns={3} gap={4}>
-        <VStack gap={2}>
-          <Text type="label" color="secondary">
-            うまくいかなかったこと ①
-          </Text>
-          <Todo label="内容と直し方" />
-        </VStack>
-        <VStack gap={2}>
-          <Text type="label" color="secondary">
-            うまくいかなかったこと ②
-          </Text>
-          <Todo label="内容と直し方" />
-        </VStack>
-        <VStack gap={2}>
-          <Text type="label" color="secondary">
-            開発時間
-          </Text>
-          <Todo label="◯時間" />
-        </VStack>
+        {AI_NOTES.map(([what, fix]) => (
+          <VStack key={what} gap={1}>
+            <Text size="xl" weight="semibold">
+              {what}
+            </Text>
+            <Text size="xl" color="secondary">
+              {fix}
+            </Text>
+          </VStack>
+        ))}
       </Grid>
     </Slide>
   )
@@ -344,7 +359,7 @@ function Next() {
 /* ---------- 付録: 想定 Q&A ---------- */
 const QA: [string, ReactNode][] = [
   ['なぜブロックチェーンが必要？', '運営者なしで代金を預け、条件どおりに払う・返すため。普通の DB だと運営者を信頼する必要がある。'],
-  ['AI にどこまで任せた？', <Todo key="t" label="自分たちで決めた・直した部分／AI が書いた割合" />],
+  ['AI にどこまで任せた？', '実装・テスト・デプロイはすべて Claude Code。UI のデザイン（Astryx の採用と見た目の方針）は自分たちで指定。'],
   ['貸し手が途中で GPU を止めたら？', '保証は「開始の記録」まで。止められても代金は支払われる。利用の証明と評判は今後。'],
   ['借り手が貸し手の PC を悪用しない？', '専用フォルダ・ターミナル無効で起動。完全な隔離ではなく、デモ用途に限定。'],
   ['価格はどう決まる？', '行列積で性能を測り、1 分 = TFLOPS × 0.000002 SOL。Arc 140T（約 13 TFLOPS）なら約 0.000026 SOL / 分。'],
