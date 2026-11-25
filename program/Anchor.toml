@@ -7,7 +7,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-sorana_market = "Gk1366at4C4ovkCMauacmRckfo9nbi1nyZo4rRB5Ltdt"
+solgpu_market = "Gk1366at4C4ovkCMauacmRckfo9nbi1nyZo4rRB5Ltdt"
 
 [provider]
 cluster = "localnet"
@@ -19,4 +19,4 @@ test = "cargo test"
 [hooks]
 
 [programs.devnet]
-sorana_market = "Gk1366at4C4ovkCMauacmRckfo9nbi1nyZo4rRB5Ltdt"
+solgpu_market = "Gk1366at4C4ovkCMauacmRckfo9nbi1nyZo4rRB5Ltdt"

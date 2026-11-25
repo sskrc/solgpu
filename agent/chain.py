@@ -1,6 +1,6 @@
 """SolGPU エージェントの部品: Solana 上の SolGPU プログラムとのやり取り
 
-- アカウントのデコードと命令のエンコードは、ビルド時に生成された IDL (sorana_market.json) に従う
+- アカウントのデコードと命令のエンコードは、ビルド時に生成された IDL (solgpu_market.json) に従う
 - エージェントの鍵 (operator) で署名できるのは accept / settle / update_agent だけ。
   代金の行き先はプログラム側で固定されているので、この鍵が漏れてもお金は盗まれない
 """
@@ -22,7 +22,7 @@ from solders.message import Message
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
-IDL = json.loads((Path(__file__).resolve().parent / "sorana_market.json").read_text(encoding="utf-8"))
+IDL = json.loads((Path(__file__).resolve().parent / "solgpu_market.json").read_text(encoding="utf-8"))
 PROGRAM_ID = Pubkey.from_string(IDL["address"])
 _TYPES = {t["name"]: t["type"] for t in IDL["types"]}
 _ACCOUNT_DISC = {a["name"]: bytes(a["discriminator"]) for a in IDL["accounts"]}

@@ -4,7 +4,7 @@ import { connection } from './solana'
 
 // ===== 貸し手エージェントとの通信 =====
 export type AgentInfo = {
-  sorana: string
+  solgpu: string
   programId: string
   agentUrl: string
   gpu: string
@@ -98,10 +98,12 @@ export type SavedRental = {
   paid?: boolean
 }
 
-const KEY = 'sorana:rentals:v2'
+const KEY = 'solgpu:rentals:v2'
+// 名前変更前（sorana）に保存したレンタル履歴も読めるようにする
+const OLD_KEY = 'sorana:rentals:v2'
 export function loadRentals(): SavedRental[] {
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? '[]') as SavedRental[]
+    return JSON.parse(localStorage.getItem(KEY) ?? localStorage.getItem(OLD_KEY) ?? '[]') as SavedRental[]
   } catch {
     return []
   }

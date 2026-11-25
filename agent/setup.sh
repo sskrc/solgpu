@@ -12,4 +12,4 @@ esac
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install torch --index-url "$INDEX"
 .venv/bin/python -m pip install -r requirements.txt
-echo "準備完了！  .venv/bin/python sorana_agent.py --i-understand-the-risk で起動できます"
+echo "準備完了！  .venv/bin/python solgpu_agent.py --i-understand-the-risk で起動できます"

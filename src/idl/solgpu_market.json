@@ -1,10 +1,10 @@
 {
   "address": "Gk1366at4C4ovkCMauacmRckfo9nbi1nyZo4rRB5Ltdt",
   "metadata": {
-    "name": "sorana_market",
+    "name": "solgpu_market",
     "version": "0.1.0",
     "spec": "0.1.0",
-    "description": "Sorana GPU rental marketplace with escrow"
+    "description": "SolGPU GPU rental marketplace with escrow"
   },
   "instructions": [
     {

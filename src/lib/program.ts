@@ -10,7 +10,7 @@ import {
   TransactionInstruction,
   type AccountMeta,
 } from '@solana/web3.js'
-import idlJson from '../idl/sorana_market.json' with { type: 'json' }
+import idlJson from '../idl/solgpu_market.json' with { type: 'json' }
 
 export const IDL = idlJson as unknown as Idl
 export const PROGRAM_ID = new PublicKey(IDL.address)

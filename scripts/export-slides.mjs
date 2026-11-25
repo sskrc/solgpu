@@ -12,7 +12,7 @@ import { createServer } from 'vite'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = path.join(root, 'Sorana発表資料')
-const shots = mkdtempSync(path.join(tmpdir(), 'sorana-slides-'))
+const shots = mkdtempSync(path.join(tmpdir(), 'solgpu-slides-'))
 mkdirSync(outDir, { recursive: true })
 
 const server = await createServer({ root, server: { port: 5197, strictPort: true } })

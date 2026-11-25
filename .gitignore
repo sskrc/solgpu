@@ -23,7 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
-# Sorana agent
+# SolGPU agent
 agent/.venv
 agent/data
 agent/sessions

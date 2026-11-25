@@ -1,4 +1,4 @@
-//! Sorana マーケットのテスト（LiteSVM 上で実際のプログラムを動かす）
+//! SolGPU マーケットのテスト（LiteSVM 上で実際のプログラムを動かす）
 use {
     anchor_lang::{
         prelude::{Clock, Pubkey},
@@ -10,7 +10,7 @@ use {
     solana_message::{Message, VersionedMessage},
     solana_signer::Signer,
     solana_transaction::versioned::VersionedTransaction,
-    sorana_market::{
+    solgpu_market::{
         accounts as acc, instruction as ix, state::{Listing, Rental, RentalStatus}, ACCEPT_TIMEOUT_SECS,
     },
 };
@@ -46,12 +46,12 @@ fn send(svm: &mut LiteSVM, ixs: &[Instruction], payer: &Keypair, signers: &[&Key
 }
 
 fn listing_pda(owner: &Pubkey, id: u64) -> Pubkey {
-    Pubkey::find_program_address(&[b"listing", owner.as_ref(), &id.to_le_bytes()], &sorana_market::id()).0
+    Pubkey::find_program_address(&[b"listing", owner.as_ref(), &id.to_le_bytes()], &solgpu_market::id()).0
 }
 fn rental_pda(listing: &Pubkey, renter: &Pubkey, nonce: u64) -> Pubkey {
     Pubkey::find_program_address(
         &[b"rental", listing.as_ref(), renter.as_ref(), &nonce.to_le_bytes()],
-        &sorana_market::id(),
+        &solgpu_market::id(),
     )
     .0
 }
@@ -71,8 +71,8 @@ fn warp(svm: &mut LiteSVM, secs: i64) {
 
 fn setup() -> Env {
     let mut svm = LiteSVM::new();
-    let bytes = include_bytes!(concat!(env!("CARGO_TARGET_TMPDIR"), "/../deploy/sorana_market.so"));
-    svm.add_program(sorana_market::id(), bytes).unwrap();
+    let bytes = include_bytes!(concat!(env!("CARGO_TARGET_TMPDIR"), "/../deploy/solgpu_market.so"));
+    svm.add_program(solgpu_market::id(), bytes).unwrap();
     let mut c: Clock = svm.get_sysvar();
     c.unix_timestamp = 1_800_000_000;
     svm.set_sysvar(&c);
@@ -82,7 +82,7 @@ fn setup() -> Env {
     }
     let listing = listing_pda(&owner.pubkey(), 1);
     let create = Instruction::new_with_bytes(
-        sorana_market::id(),
+        solgpu_market::id(),
         &ix::CreateListing {
             listing_id: 1,
             operator: operator.pubkey(),
@@ -102,7 +102,7 @@ fn rent_ix(e: &Keys, renter: &Pubkey, nonce: u64, minutes: u32, price: u64) -> (
     let rental = rental_pda(&e.listing, renter, nonce);
     (
         Instruction::new_with_bytes(
-            sorana_market::id(),
+            solgpu_market::id(),
             &ix::RentGpu { nonce, minutes, expected_lamports_per_minute: price, secret_hash: [7u8; 32] }.data(),
             acc::RentGpu { renter: *renter, listing: e.listing, rental, system_program: system_program::ID }
                 .to_account_metas(None),
@@ -112,14 +112,14 @@ fn rent_ix(e: &Keys, renter: &Pubkey, nonce: u64, minutes: u32, price: u64) -> (
 }
 fn accept_ix(e: &Keys, operator: &Pubkey, rental: Pubkey) -> Instruction {
     Instruction::new_with_bytes(
-        sorana_market::id(),
+        solgpu_market::id(),
         &ix::Accept {}.data(),
         acc::Accept { operator: *operator, listing: e.listing, rental }.to_account_metas(None),
     )
 }
 fn settle_ix(e: &Keys, caller: &Pubkey, rental: Pubkey, owner: Pubkey) -> Instruction {
     Instruction::new_with_bytes(
-        sorana_market::id(),
+        solgpu_market::id(),
         &ix::Settle {}.data(),
         acc::Settle { caller: *caller, listing: e.listing, rental, owner, renter: e.renter.pubkey() }
             .to_account_metas(None),
@@ -127,14 +127,14 @@ fn settle_ix(e: &Keys, caller: &Pubkey, rental: Pubkey, owner: Pubkey) -> Instru
 }
 fn refund_ix(e: &Keys, caller: &Pubkey, rental: Pubkey) -> Instruction {
     Instruction::new_with_bytes(
-        sorana_market::id(),
+        solgpu_market::id(),
         &ix::Refund {}.data(),
         acc::Refund { caller: *caller, listing: e.listing, rental, renter: e.renter.pubkey() }.to_account_metas(None),
     )
 }
 fn close_ix(e: &Keys) -> Instruction {
     Instruction::new_with_bytes(
-        sorana_market::id(),
+        solgpu_market::id(),
         &ix::CloseListing {}.data(),
         acc::CloseListing { owner: e.owner.pubkey(), listing: e.listing }.to_account_metas(None),
     )
@@ -263,7 +263,7 @@ fn listing_permissions() {
     let mut e = setup();
     let upd = |who: Pubkey, url: &str, active: bool| {
         Instruction::new_with_bytes(
-            sorana_market::id(),
+            solgpu_market::id(),
             &ix::UpdateAgent { agent_url: url.into(), active }.data(),
             acc::UpdateAgent { authority: who, listing: e.k.listing }.to_account_metas(None),
         )
@@ -289,14 +289,14 @@ fn listing_permissions() {
 
     // 他人は価格を変えられない・取り下げられない
     let i = Instruction::new_with_bytes(
-        sorana_market::id(),
+        solgpu_market::id(),
         &ix::UpdateListing { operator: e.k.stranger.pubkey(), gpu: "x".into(), tflops_x100: 1, lamports_per_minute: PRICE }
             .data(),
         acc::UpdateListing { owner: e.k.stranger.pubkey(), listing: e.k.listing }.to_account_metas(None),
     );
     assert!(send(&mut e.svm, &[i], &stranger_kp, &[]).is_err());
     let i = Instruction::new_with_bytes(
-        sorana_market::id(),
+        solgpu_market::id(),
         &ix::CloseListing {}.data(),
         acc::CloseListing { owner: e.k.stranger.pubkey(), listing: e.k.listing }.to_account_metas(None),
     );

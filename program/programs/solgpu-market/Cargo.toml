@@ -1,13 +1,13 @@
 [package]
-name = "sorana-market"
+name = "solgpu-market"
 version = "0.1.0"
-description = "Sorana GPU rental marketplace with escrow"
+description = "SolGPU GPU rental marketplace with escrow"
 edition.workspace = true
 rust-version.workspace = true
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "sorana_market"
+name = "solgpu_market"
 
 [features]
 default = []

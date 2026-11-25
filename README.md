@@ -25,7 +25,7 @@ SolGPU は **誰でも自分の GPU を出品でき、誰でも分単位で借�
 └───────────────────────┘          └──────────────────────────────┘          └──────────────────┘
 ```
 
-### プログラムの命令（`program/programs/sorana-market/src`）
+### プログラムの命令（`program/programs/solgpu-market/src`）
 
 | 命令 | 誰が | 何をする |
 | --- | --- | --- |
@@ -72,8 +72,8 @@ SolGPU は **誰でも自分の GPU を出品でき、誰でも分単位で借�
 | パス | 内容 |
 | --- | --- |
 | `program/` | **Anchor プログラム**（Rust）とテスト |
-| `program/programs/sorana-market/src/instructions/` | 出品・レンタル・エスクローの各命令 |
-| `program/programs/sorana-market/tests/test_market.rs` | テスト（成功の流れ・不正操作・期限切れ返金など） |
+| `program/programs/solgpu-market/src/instructions/` | 出品・レンタル・エスクローの各命令 |
+| `program/programs/solgpu-market/tests/test_market.rs` | テスト（成功の流れ・不正操作・期限切れ返金など） |
 | `program/build.sh` | ビルド・テスト・デプロイ（WSL / Linux） |
 | `src/lib/program.ts` | Web アプリからプログラムを呼ぶ部分 |
 | `src/pages/Market.tsx` | GPU を借りる |
@@ -83,7 +83,7 @@ SolGPU は **誰でも自分の GPU を出品でき、誰でも分単位で借�
 | `src/astryx-themes.ts` | 画面のテーマ（[Astryx](https://www.npmjs.com/package/@astryxdesign/core) の Gothic。`npx astryx theme` が生成） |
 | `src/slides/` / `slides.html` | 発表スライド（アプリと同じ Astryx で作成）。本文は `Deck.tsx`、発表原稿は `notes.json` |
 | `scripts/export-slides.mjs` | 発表スライドを PDF / PowerPoint に書き出す（`npm run slides:export`） |
-| `agent/sorana_agent.py` | 貸し手エージェント本体 |
+| `agent/solgpu_agent.py` | 貸し手エージェント本体 |
 | `agent/chain.py` | エージェントからプログラムを呼ぶ部分（accept / settle） |
 | `agent/runtime.py` | ベンチマーク・Jupyter・トンネル・プロセス管理 |
 | `scripts/e2e-local.ts` | ローカル validator での通しテスト |
@@ -100,7 +100,7 @@ SolGPU は **誰でも自分の GPU を出品でき、誰でも分単位で借�
 ## 2. Web アプリを起動する
 
 ```bash
-cd Sorana
+cd solgpu
 npm install      # 最初の 1 回だけ
 npm run dev
 ```
@@ -179,7 +179,7 @@ bash program/build.sh deploy   # + Devnet へデプロイ（デプロイ用ウ�
 - ローカル validator での通しテスト:
   ```bash
   # WSL で
-  solana-test-validator --reset --bpf-program <PROGRAM_ID> ~/sorana-build/target/deploy/sorana_market.so
+  solana-test-validator --reset --bpf-program <PROGRAM_ID> ~/solgpu-build/target/deploy/solgpu_market.so
   # Windows で
   node scripts/e2e-local.ts
   ```

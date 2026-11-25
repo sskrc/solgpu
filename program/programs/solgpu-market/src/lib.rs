@@ -1,4 +1,4 @@
-//! Sorana GPU マーケット（エスクロー付き）
+//! SolGPU GPU マーケット（エスクロー付き）
 //!
 //! - 貸し手は GPU を「出品 (Listing)」する。受取ウォレット (owner) と、
 //!   GPU の PC で動くエージェントの鍵 (operator) を登録する
@@ -25,7 +25,7 @@ pub use state::*;
 declare_id!("Gk1366at4C4ovkCMauacmRckfo9nbi1nyZo4rRB5Ltdt");
 
 #[program]
-pub mod sorana_market {
+pub mod solgpu_market {
     use super::*;
 
     /// GPU を出品する（貸し手のウォレットが署名）

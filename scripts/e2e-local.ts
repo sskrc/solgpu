@@ -1,10 +1,10 @@
 /**
  * ローカル validator を使った通しテスト（出品 → レンタル → 利用開始 → 精算 / 返金）
  *
- *   1. WSL で: solana-test-validator --bpf-program <PROGRAM_ID> <sorana_market.so> --reset
+ *   1. WSL で: solana-test-validator --bpf-program <PROGRAM_ID> <solgpu_market.so> --reset
  *   2. node scripts/e2e-local.ts
  *
- * Phantom の代わりにテスト用の鍵で署名し、本物のエージェント (agent/sorana_agent.py) を起動して確かめる
+ * Phantom の代わりにテスト用の鍵で署名し、本物のエージェント (agent/solgpu_agent.py) を起動して確かめる
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
@@ -65,7 +65,7 @@ async function api(path: string, body?: unknown) {
 function startAgent(dataDir: string): Promise<{ proc: ChildProcess; out: string[] }> {
   const proc = spawn(
     join('agent', '.venv', 'Scripts', 'python.exe'),
-    ['-W', 'ignore', 'agent/sorana_agent.py', '--rpc', RPC, '--no-tunnel', '--no-browser', '--port', String(PORT), '--data-dir', dataDir],
+    ['-W', 'ignore', 'agent/solgpu_agent.py', '--rpc', RPC, '--no-tunnel', '--no-browser', '--port', String(PORT), '--data-dir', dataDir],
     { env: { ...process.env, PYTHONIOENCODING: 'utf-8' } },
   )
   const out: string[] = []
@@ -93,7 +93,7 @@ async function main() {
   await airdrop(renter.publicKey, 5)
 
   // エージェント（テスト用データフォルダ。ベンチマーク結果は固定値を入れておく）
-  const dataDir = mkdtempSync(join(tmpdir(), 'sorana-agent-'))
+  const dataDir = mkdtempSync(join(tmpdir(), 'solgpu-agent-'))
   const PRICE = 25946
   writeFileSync(
     join(dataDir, 'state.json'),

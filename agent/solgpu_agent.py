@@ -138,7 +138,7 @@ class Agent:
         b = self.state["bench"]
         op_balance = self.operator_balance()
         return {
-            "sorana": VERSION,
+            "solgpu": VERSION,
             "programId": str(PROGRAM_ID),
             "agentUrl": self.public_url,
             "gpu": b["gpu"],
