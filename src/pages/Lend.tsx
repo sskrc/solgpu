@@ -144,7 +144,7 @@ export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; c
       {!agent && (
         <VStack gap={5}>
           <Stepper activeStep={0} orientation="vertical" label="出品の手順">
-            <Step step={0} label="貸し出したい PC で Amari エージェントを起動" description="手順は README の「GPU を貸す」にあります。">
+            <Step step={0} label="貸し出したい PC で SolGPU エージェントを起動" description="手順は README の「GPU を貸す」にあります。">
               <CodeBlock code={'cd agent\n.\\start.bat'} language="powershell" title="PowerShell" />
             </Step>
             <Step step={1} label="ベンチマークで価格が自動で決まる" description="エージェントが GPU の性能を測り、1 分あたりの価格を決めます。" />

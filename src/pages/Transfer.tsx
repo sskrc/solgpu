@@ -58,7 +58,7 @@ export function Transfer({ wallet }: { wallet: Wallet }) {
       const signature = await signAndSend(
         wallet.phantom,
         wallet.publicKey,
-        [transferIx(wallet.publicKey, recipientKey, lamports), memoIx(wallet.publicKey, 'Amari: direct payment')],
+        [transferIx(wallet.publicKey, recipientKey, lamports), memoIx(wallet.publicKey, 'SolGPU: direct payment')],
         (message) => setStatus({ kind: 'busy', message }),
       )
       setStatus({

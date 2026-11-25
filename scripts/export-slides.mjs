@@ -1,7 +1,7 @@
 // 発表スライド（slides.html）を PDF と PowerPoint（画像＋スピーカーノート）に書き出す
 //   npm run slides:export
 // 必要なもの: Microsoft Edge（Windows に標準で入っている）
-// 出力先: Sorana発表資料/Amari_発表資料.{pdf,pptx}
+// 出力先: Sorana発表資料/SolGPU_発表資料.{pdf,pptx}
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -44,7 +44,7 @@ try {
     await slides.nth(i).screenshot({ path: path.join(shots, `slide${String(i + 1).padStart(2, '0')}.png`) })
   }
   await page.pdf({
-    path: path.join(outDir, 'Amari_発表資料.pdf'),
+    path: path.join(outDir, 'SolGPU_発表資料.pdf'),
     width: '800px',
     height: '450px',
     printBackground: true,
@@ -63,7 +63,7 @@ try {
       const note = notes[i]
       if (note) s.addNotes((note.seconds ? `【${note.seconds}秒】\n` : '') + note.script)
     })
-  await pptx.writeFile({ fileName: path.join(outDir, 'Amari_発表資料.pptx') })
+  await pptx.writeFile({ fileName: path.join(outDir, 'SolGPU_発表資料.pptx') })
   console.log(`${n} 枚を書き出しました: ${outDir}`)
 } finally {
   await browser.close()

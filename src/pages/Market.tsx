@@ -101,7 +101,7 @@ export function Market({ wallet, onRented }: { wallet: Wallet; onRented: () => v
     }
     saveRental(saved) // 支払い前に保存（途中でページを閉じても「マイレンタル」から続きができる）
     try {
-      // 1. 代金をエスクロー（Amari プログラムの口座）に預ける
+      // 1. 代金をエスクロー（SolGPU プログラムの口座）に預ける
       try {
         await signAndSend(wallet.phantom, wallet.publicKey, [ix], (message) => setStatus({ kind: 'busy', message }))
       } catch (err) {

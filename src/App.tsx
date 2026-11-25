@@ -44,7 +44,7 @@ export default function App() {
   const [rentalsKey, setRentalsKey] = useState(0)
   const [programMissing, setProgramMissing] = useState(false)
 
-  // Amari プログラムがこのネットワークに存在するか確認（未デプロイなら案内を出す）
+  // SolGPU プログラムがこのネットワークに存在するか確認（未デプロイなら案内を出す）
   useEffect(() => {
     connection
       .getAccountInfo(PROGRAM_ID)
@@ -87,8 +87,8 @@ export default function App() {
 
   const topNav = (
     <TopNav
-      label="Amari"
-      heading={<TopNavHeading heading="Amari" subheading={isNarrow ? undefined : 'みんなの GPU を SOL で貸し借り'} headingHref="#market" />}
+      label="SolGPU"
+      heading={<TopNavHeading heading="SolGPU" subheading={isNarrow ? undefined : 'みんなの GPU を SOL で貸し借り'} headingHref="#market" />}
       endContent={
         <HStack gap={3} align="center">
           <HStack gap={1} align="center">
@@ -114,7 +114,7 @@ export default function App() {
             {programMissing && (
               <Banner
                 status="warning"
-                title="Amari プログラムがまだ Devnet にデプロイされていません"
+                title="SolGPU プログラムがまだ Devnet にデプロイされていません"
                 description={`デプロイが完了するまで、出品・レンタルはできません（直接送金は使えます）。Program ID: ${PROGRAM_ID.toBase58()}`}
               />
             )}

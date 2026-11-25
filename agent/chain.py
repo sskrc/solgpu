@@ -1,4 +1,4 @@
-"""Amari エージェントの部品: Solana 上の Amari プログラムとのやり取り
+"""SolGPU エージェントの部品: Solana 上の SolGPU プログラムとのやり取り
 
 - アカウントのデコードと命令のエンコードは、ビルド時に生成された IDL (sorana_market.json) に従う
 - エージェントの鍵 (operator) で署名できるのは accept / settle / update_agent だけ。

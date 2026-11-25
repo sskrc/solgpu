@@ -1,10 +1,10 @@
 """
-Amari 貸し手エージェント
+SolGPU 貸し手エージェント
 =========================
 GPU を貸し出す人の PC で動かすプログラムです。
 
   1. GPU の性能をベンチマークで測り、1 分あたりの価格を決める
-  2. 出品リンクを表示（Phantom で Amari プログラムに出品する）
+  2. 出品リンクを表示（Phantom で SolGPU プログラムに出品する）
   3. 借り手が代金をエスクロー（プログラムの口座）に預けたら、専用フォルダで Jupyter Lab と
      公開 URL を用意し、プログラムに「利用開始 (accept)」を記録する
   4. 時間が来たら Jupyter を停止し、「精算 (settle)」して代金を貸し手のウォレットへ送る
@@ -292,7 +292,7 @@ class Agent:
             workdir.mkdir(parents=True, exist_ok=True)
             b = self.state["bench"]
             (workdir / "README_GPU.md").write_text(
-                f"# Amari GPU レンタル\n\nGPU: {b['gpu']} ({b['backend']})\n\n"
+                f"# SolGPU GPU レンタル\n\nGPU: {b['gpu']} ({b['backend']})\n\n"
                 "```python\nimport torch\n"
                 f"device = '{b['backend']}'\n"
                 "x = torch.randn(4096, 4096, device=device)\nprint((x @ x).sum())\n```\n\n"
@@ -461,9 +461,9 @@ def main():
             stream.reconfigure(encoding="utf-8")
         except Exception:
             pass
-    p = argparse.ArgumentParser(description="Amari GPU 貸し手エージェント (Devnet)")
+    p = argparse.ArgumentParser(description="SolGPU GPU 貸し手エージェント (Devnet)")
     p.add_argument("--port", type=int, default=8765)
-    p.add_argument("--site", default="http://localhost:5173/", help="Amari の Web アプリの URL（出品リンク用）")
+    p.add_argument("--site", default="http://localhost:5173/", help="SolGPU の Web アプリの URL（出品リンク用）")
     p.add_argument("--no-tunnel", action="store_true", help="インターネットに公開せず、この PC 内だけで動かす")
     p.add_argument("--i-understand-the-risk", action="store_true", help="外部公開のリスクを理解したうえで公開する")
     p.add_argument("--rebench", action="store_true", help="ベンチマークをやり直す")
@@ -526,7 +526,7 @@ def main():
         site = args.site if args.site.endswith("/") else args.site + "/"
         link = f"{site}#lend?agent={urllib.parse.quote(agent.public_url, safe='')}&code={agent.activation_code}"
         print("\n" + "=" * 70)
-        print(" Amari エージェント起動完了")
+        print(" SolGPU エージェント起動完了")
         print(f"   GPU          : {agent.state['bench']['gpu']}")
         print(f"   価格         : {agent.state['bench']['lamportsPerMinute'] / 1e9:.6f} SOL / 分")
         print(f"   エージェント : {agent.public_url}")

@@ -63,7 +63,7 @@ export const agentApi = {
 export type MarketItem = { listing: Listing; info: AgentInfo }
 
 /**
- * Amari プログラムの出品アカウントを読み、受付中のものに問い合わせて、
+ * SolGPU プログラムの出品アカウントを読み、受付中のものに問い合わせて、
  * 「オンライン」かつ「エージェント自身がその出品に紐付いていると答えた」ものだけを返す
  * （他人のエージェントの URL を勝手に出品しても表示されない）
  */

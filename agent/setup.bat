@@ -1,5 +1,5 @@
 @echo off
-REM Amari エージェントの準備（最初の 1 回だけ）
+REM SolGPU エージェントの準備（最初の 1 回だけ）
 REM 使い方:  setup.bat intel   … Intel Arc / Core Ultra 内蔵 GPU
 REM          setup.bat nvidia  … NVIDIA GeForce / RTX など
 REM          setup.bat cpu     … GPU なし（CPU で動作確認）

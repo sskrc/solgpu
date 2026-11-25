@@ -1,4 +1,4 @@
-"""Amari エージェントの部品: ログ・ベンチマーク・プロセス管理・Cloudflare Tunnel"""
+"""SolGPU エージェントの部品: ログ・ベンチマーク・プロセス管理・Cloudflare Tunnel"""
 
 from __future__ import annotations
 

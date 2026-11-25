@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Amari エージェントの準備 (Linux / macOS)
+# SolGPU エージェントの準備 (Linux / macOS)
 # 使い方: ./setup.sh nvidia | intel | cpu   (macOS は cpu を指定すると Apple GPU も使えます)
 set -e
 cd "$(dirname "$0")"

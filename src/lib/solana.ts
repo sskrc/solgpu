@@ -112,7 +112,7 @@ export function toFriendlyError(err: unknown): FriendlyError {
   const raw = [e?.message ?? String(err), ...(e?.logs ?? [])].join('\n')
   if (/program that does not exist|Unsupported program id|ProgramAccountNotFound/i.test(raw)) {
     return {
-      message: 'Amari プログラムがまだこのネットワーク（Devnet）にデプロイされていません。デプロイが完了するまで出品・レンタルはできません。',
+      message: 'SolGPU プログラムがまだこのネットワーク（Devnet）にデプロイされていません。デプロイが完了するまで出品・レンタルはできません。',
       detail: raw,
     }
   }

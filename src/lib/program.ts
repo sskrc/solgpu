@@ -1,5 +1,5 @@
 /**
- * Amari プログラム（Anchor）とのやり取り
+ * SolGPU プログラム（Anchor）とのやり取り
  * ブラウザとテストスクリプトの両方から使えるよう、Connection は引数で受け取る
  */
 import { BN, BorshAccountsCoder, BorshInstructionCoder, type Idl } from '@anchor-lang/core'

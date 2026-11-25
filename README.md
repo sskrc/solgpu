@@ -1,7 +1,7 @@
-# Amari — みんなの GPU を SOL で貸し借り（Solana Devnet・エスクロー付き）
+# SolGPU — みんなの GPU を SOL で貸し借り（Solana Devnet・エスクロー付き）
 
 AI 需要で GPU が足りない一方、個人の PC の GPU は多くの時間あまっています。
-Amari は **誰でも自分の GPU を出品でき、誰でも分単位で借りられる** GPU マーケットプレイスです。
+SolGPU は **誰でも自分の GPU を出品でき、誰でも分単位で借りられる** GPU マーケットプレイスです。
 出品とレンタルは **Anchor で書いた Solana プログラム** が管理し、代金は **エスクロー** で守られます。
 
 - 貸し手: エージェントを起動 → **ベンチマークで性能を測定し価格を自動決定** → Phantom で出品
@@ -15,9 +15,9 @@ Amari は **誰でも自分の GPU を出品でき、誰でも分単位で借り
 ## 仕組み
 
 ```
- 貸し手の PC                          Amari プログラム (Solana Devnet)              借り手のブラウザ
+ 貸し手の PC                          SolGPU プログラム (Solana Devnet)              借り手のブラウザ
 ┌───────────────────────┐          ┌──────────────────────────────┐          ┌──────────────────┐
-│ Amari エージェント     │          │ Listing（出品）                │ ◀─ 一覧 ─ │ Amari Web アプリ │
+│ SolGPU エージェント     │          │ Listing（出品）                │ ◀─ 一覧 ─ │ SolGPU Web アプリ │
 │  ・ベンチマーク          │          │   受取先・価格・エージェントURL  │          │ (GitHub Pages)    │
 │  ・operator 鍵          │ ─accept─▶ │ Rental（エスクロー口座）       │ ◀─ 預金 ─ │  Phantom で署名   │
 │  ・Jupyter 起動/停止     │ ─settle─▶ │   代金を預かり、終了後に貸し手へ │ ─ 返金 ─▶ │                  │
