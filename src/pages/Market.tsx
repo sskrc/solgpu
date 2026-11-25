@@ -25,6 +25,8 @@ import {
   FEE_BUFFER_LAMPORTS,
   LAMPORTS_PER_SOL,
   lamportsToSol,
+  priceDiffLabel,
+  referencePrice,
   SentButUnconfirmedError,
   shorten,
   signAndSend,
@@ -189,9 +191,7 @@ export function Market({ wallet, onRented }: { wallet: Wallet; onRented: () => v
                       {l.tflops} TFLOPS（{i.dtype}）
                     </Text>
                   </VStack>
-                  <Text type="large" weight="semibold" color="accent">
-                    {lamportsToSol(l.lamportsPerMinute)} SOL / 分
-                  </Text>
+                  <PriceBlock price={l.lamportsPerMinute} tflops={l.tflops} />
                   <Text type="supporting" color="secondary">
                     貸し手 <Code color="inherit">{shorten(l.owner.toBase58())}</Code>・実績 {l.totalRentals} 回
                   </Text>
@@ -221,6 +221,10 @@ export function Market({ wallet, onRented }: { wallet: Wallet; onRented: () => v
           <MetadataList>
             <MetadataListItem label="GPU">{item.listing.gpu}</MetadataListItem>
             <MetadataListItem label="単価">{lamportsToSol(item.listing.lamportsPerMinute)} SOL / 分</MetadataListItem>
+            <MetadataListItem label="性能からの目安">{lamportsToSol(referencePrice(item.listing.tflops))} SOL / 分</MetadataListItem>
+            <MetadataListItem label="目安との差">
+              {priceDiffLabel(item.listing.lamportsPerMinute, referencePrice(item.listing.tflops))}
+            </MetadataListItem>
             <MetadataListItem label="受取先">
               <Code>{shorten(item.listing.owner.toBase58())}</Code>
             </MetadataListItem>
@@ -276,7 +280,7 @@ export function Market({ wallet, onRented }: { wallet: Wallet; onRented: () => v
           余った GPU を、分単位で。
         </Heading>
         <Text type="large" color="secondary" weight="normal">
-          いま貸し手のエージェントが動いている GPU です。価格はベンチマーク結果から自動で決まり、代金はプログラムのエスクローが預かります。
+          いま貸し手のエージェントが動いている GPU です。価格は貸し手が決め、性能から算出した目安も並べて表示します。代金はプログラムのエスクローが預かります。
         </Text>
         {items && items.length > 0 && (
           <HStack gap={8} wrap="wrap" paddingBlockStart={2}>
@@ -293,6 +297,24 @@ export function Market({ wallet, onRented }: { wallet: Wallet; onRented: () => v
         {gpuList}
         {checkout}
       </Grid>
+    </VStack>
+  )
+}
+
+/** 価格（メイン）と、その下に性能から算出した目安・目安との差 */
+function PriceBlock({ price, tflops }: { price: number; tflops: number }) {
+  const ref = referencePrice(tflops)
+  return (
+    <VStack gap={0.5}>
+      <Text type="large" weight="semibold" color="accent">
+        {lamportsToSol(price)} SOL / 分
+      </Text>
+      <Text type="supporting" color="secondary">
+        性能からの目安 {lamportsToSol(ref)} SOL / 分
+      </Text>
+      <Text type="supporting" weight="semibold" color={priceDiffLabel(price, ref) === '目安どおり' ? 'secondary' : 'primary'}>
+        {priceDiffLabel(price, ref)}
+      </Text>
     </VStack>
   )
 }

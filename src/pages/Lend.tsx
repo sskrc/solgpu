@@ -14,6 +14,7 @@ import { Spinner } from '@astryxdesign/core/Spinner'
 import { StatusDot } from '@astryxdesign/core/StatusDot'
 import { Step, Stepper } from '@astryxdesign/core/Stepper'
 import { Text } from '@astryxdesign/core/Text'
+import { TextInput } from '@astryxdesign/core/TextInput'
 import { VStack } from '@astryxdesign/core/VStack'
 import { PageHeader, SectionTitle } from '../components/PageHeader'
 import { StatusBox, type Status } from '../components/StatusBox'
@@ -25,6 +26,7 @@ import {
   fetchRental,
   randomU64,
   settleIx,
+  updatePriceIx,
   type Listing,
   type Rental,
 } from '../lib/program'
@@ -34,6 +36,9 @@ import {
   LAMPORTS_PER_TFLOPS_MINUTE,
   lamportsToSol,
   MIN_LAMPORTS_PER_MINUTE,
+  parsePrice,
+  priceDiffLabel,
+  referencePrice,
   shorten,
   signAndSend,
   toFriendlyError,
@@ -64,12 +69,56 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
   )
 }
 
+/** 出品価格の入力。性能からの目安と、目安との差を下に出す */
+function PriceField({
+  value,
+  onChange,
+  suggested,
+  isDisabled,
+  onReset,
+}: {
+  value: string
+  onChange: (v: string) => void
+  suggested: number
+  isDisabled?: boolean
+  onReset?: () => void
+}) {
+  const parsed = parsePrice(value)
+  const lamports = 'lamports' in parsed ? parsed.lamports : 0
+  return (
+    <VStack gap={2}>
+      <TextInput
+        label="出品価格（SOL / 分）"
+        value={value}
+        onChange={onChange}
+        inputMode="decimal"
+        autoComplete="off"
+        isDisabled={isDisabled}
+        description={`目安は ${lamportsToSol(suggested)} SOL / 分（性能から算出）。自由に変えられます。`}
+        status={'error' in parsed ? { type: 'error', message: parsed.error } : undefined}
+      />
+      {lamports > 0 && (
+        <HStack gap={3} align="center" wrap="wrap">
+          <Text type="supporting" color="secondary">
+            1 時間 = {lamportsToSol(lamports * 60)} SOL・{priceDiffLabel(lamports, suggested)}
+          </Text>
+          {lamports !== suggested && onReset && (
+            <Button label="目安に戻す" size="sm" variant="ghost" onClick={onReset} isDisabled={isDisabled} />
+          )}
+        </HStack>
+      )}
+    </VStack>
+  )
+}
+
 /** GPU を貸す（出品と管理） */
 export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; code: string }) {
   const [info, setInfo] = useState<AgentInfo | null>(null)
   const [infoError, setInfoError] = useState('')
   const [codeError, setCodeError] = useState('')
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  /** 出品価格（SOL / 分）。空のあいだは性能からの目安を使う */
+  const [priceInput, setPriceInput] = useState('')
 
   useEffect(() => {
     if (!agent) return
@@ -90,6 +139,10 @@ export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; c
   }, [agent, code])
 
   const busy = status.kind === 'busy'
+  const suggested = info ? referencePrice(info.tflops) : 0
+  const priceText = priceInput || (info ? lamportsToSol(suggested) : '')
+  const price = parsePrice(priceText)
+  const priceLamports = 'lamports' in price ? price.lamports : 0
 
   const list = async () => {
     if (!wallet.phantom || !wallet.publicKey || !info) return
@@ -97,6 +150,7 @@ export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; c
       // 手数料を払う前に、リンクが最新か確認（古いリンクで署名してしまうのを防ぐ）
       setStatus({ kind: 'busy', message: '出品リンクを確認しています…' })
       await agentApi.checkCode(agent, code)
+      if (!priceLamports) throw new Error('error' in price ? price.error : '価格を確認してください。')
       const operator = toKey(info.operator)
       const { listing, ix } = createListingIx({
         owner: wallet.publicKey,
@@ -105,7 +159,7 @@ export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; c
         agentUrl: agent,
         gpu: info.gpu,
         tflops: info.tflops,
-        lamportsPerMinute: info.lamportsPerMinute,
+        lamportsPerMinute: priceLamports,
       })
       const ixs = [ix]
       if ((info.operatorBalance ?? 0) < OPERATOR_MIN_LAMPORTS) {
@@ -147,12 +201,12 @@ export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; c
             <Step step={0} label="貸し出したい PC で SolGPU エージェントを起動" description="手順は README の「GPU を貸す」にあります。">
               <CodeBlock code={'cd agent\n.\\start.bat'} language="powershell" title="PowerShell" />
             </Step>
-            <Step step={1} label="ベンチマークで価格が自動で決まる" description="エージェントが GPU の性能を測り、1 分あたりの価格を決めます。" />
-            <Step step={2} label="ブラウザで出品ページが開く" description="Phantom で「このウォレットで出品する」を承認します。" />
+            <Step step={1} label="ベンチマークで目安の価格が決まる" description="エージェントが GPU の性能を測り、1 分あたりの目安の価格を出します。" />
+            <Step step={2} label="ブラウザで出品ページが開く" description="価格は目安のままでも、自分で決めても出品できます。Phantom で「このウォレットで出品する」を承認します。" />
             <Step step={3} label="利用後、代金があなたのウォレットに届く" description="借り手の代金はプログラムのエスクローに預けられ、利用時間の終了後に支払われます。" />
           </Stepper>
           <Text type="supporting" color="secondary">
-            価格ルール：計測した性能（TFLOPS）× {lamportsToSol(LAMPORTS_PER_TFLOPS_MINUTE)} SOL / 分（最低{' '}
+            目安の価格：計測した性能（TFLOPS）× {lamportsToSol(LAMPORTS_PER_TFLOPS_MINUTE)} SOL / 分（最低{' '}
             {lamportsToSol(MIN_LAMPORTS_PER_MINUTE)} SOL / 分）
           </Text>
           <Banner
@@ -186,11 +240,20 @@ export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; c
                   <Stat label="GPU" value={info.gpu} note={info.backend.toUpperCase()} />
                   <Stat label={`ベンチマーク（${info.dtype}）`} value={`${info.tflops} TFLOPS`} />
                   <Stat
-                    label="自動で決まった価格"
-                    value={`${lamportsToSol(info.lamportsPerMinute)} SOL / 分`}
-                    note={`1 時間 = ${lamportsToSol(info.lamportsPerMinute * 60)} SOL`}
+                    label="性能からの目安"
+                    value={`${lamportsToSol(suggested)} SOL / 分`}
+                    note={`1 時間 = ${lamportsToSol(suggested * 60)} SOL`}
                   />
                 </Grid>
+                {!alreadyListed && (
+                  <PriceField
+                    value={priceText}
+                    onChange={setPriceInput}
+                    suggested={suggested}
+                    isDisabled={busy}
+                    onReset={() => setPriceInput('')}
+                  />
+                )}
                 <Text type="supporting" color="secondary" wordBreak="break-all">
                   エージェント <Code color="inherit">{agent}</Code>
                 </Text>
@@ -212,7 +275,7 @@ export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; c
                     size="lg"
                     width="100%"
                     onClick={list}
-                    isDisabled={!code || !!codeError}
+                    isDisabled={!code || !!codeError || !priceLamports}
                     isLoading={busy}
                   />
                 )}
@@ -242,6 +305,8 @@ function MyListings({ wallet, refreshKey }: { wallet: Wallet; refreshKey: string
   const [listings, setListings] = useState<{ listing: Listing; current: Rental | null }[] | null>(null)
   const [error, setError] = useState('')
   const [action, setAction] = useState<Status>({ kind: 'idle' })
+  /** 価格を編集中の出品（アドレス）と入力値 */
+  const [editing, setEditing] = useState<{ address: string; value: string } | null>(null)
 
   const load = useCallback(async () => {
     if (!wallet.publicKey) return
@@ -272,6 +337,7 @@ function MyListings({ wallet, refreshKey }: { wallet: Wallet; refreshKey: string
         setAction({ kind: 'busy', message }),
       )
       setAction({ kind: 'success', title: label, signature })
+      setEditing(null)
       wallet.refreshBalance()
       load()
     } catch (e) {
@@ -290,6 +356,10 @@ function MyListings({ wallet, refreshKey }: { wallet: Wallet; refreshKey: string
       <VStack gap={4}>
         {listings?.map(({ listing: l, current }, idx) => {
           const settleable = current?.status === 'Active' && now >= current.endsAt
+          const ref = referencePrice(l.tflops)
+          const isEditing = editing?.address === l.address.toBase58()
+          const edited = isEditing ? parsePrice(editing.value) : null
+          const newPrice = edited && 'lamports' in edited ? edited.lamports : 0
           return (
             <Fragment key={l.address.toBase58()}>
               {idx > 0 && <Divider />}
@@ -298,7 +368,8 @@ function MyListings({ wallet, refreshKey }: { wallet: Wallet; refreshKey: string
                   <VStack gap={0.5}>
                     <Heading level={3}>{l.gpu}</Heading>
                     <Text type="supporting" color="secondary">
-                      {lamportsToSol(l.lamportsPerMinute)} SOL / 分・レンタル実績 {l.totalRentals} 回・未精算 {l.openRentals} 件
+                      {lamportsToSol(l.lamportsPerMinute)} SOL / 分（{priceDiffLabel(l.lamportsPerMinute, ref)}）・レンタル実績{' '}
+                      {l.totalRentals} 回・未精算 {l.openRentals} 件
                     </Text>
                   </VStack>
                   <HStack gap={1} align="center">
@@ -307,9 +378,40 @@ function MyListings({ wallet, refreshKey }: { wallet: Wallet; refreshKey: string
                   </HStack>
                 </HStack>
                 {settleable && <Text>終了したレンタルの精算待ちです（{lamportsToSol(current.amount)} SOL）。</Text>}
+                {isEditing && (
+                  <VStack gap={3}>
+                    <PriceField
+                      value={editing.value}
+                      onChange={(value) => setEditing({ address: editing.address, value })}
+                      suggested={ref}
+                      isDisabled={action.kind === 'busy'}
+                      onReset={() => setEditing({ address: editing.address, value: lamportsToSol(ref) })}
+                    />
+                    <HStack gap={3}>
+                      <Button
+                        label="この価格にする"
+                        size="sm"
+                        variant="primary"
+                        isDisabled={!newPrice || newPrice === l.lamportsPerMinute}
+                        onClick={() => run('価格を変更しました', updatePriceIx(wallet.publicKey!, l, newPrice))}
+                      />
+                      <Button label="やめる" size="sm" variant="ghost" onClick={() => setEditing(null)} />
+                    </HStack>
+                  </VStack>
+                )}
                 <HStack gap={3} align="center" wrap="wrap">
                   {settleable && (
                     <Button label="精算する" size="sm" variant="primary" onClick={() => run('精算しました', settleIx(wallet.publicKey!, current))} />
+                  )}
+                  {!isEditing && (
+                    <Button
+                      label="価格を変える"
+                      size="sm"
+                      variant="secondary"
+                      isDisabled={l.openRentals > 0}
+                      tooltip={l.openRentals > 0 ? '未精算のレンタルがあると価格を変えられません' : undefined}
+                      onClick={() => setEditing({ address: l.address.toBase58(), value: lamportsToSol(l.lamportsPerMinute) })}
+                    />
                   )}
                   <Button
                     label="取り下げる"

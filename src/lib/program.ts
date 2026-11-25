@@ -213,6 +213,19 @@ export const refundIx = (caller: PublicKey, rental: Rental) =>
 export const settleIx = (caller: PublicKey, rental: Rental) =>
   ix('settle', {}, [r(caller, true), w(rental.listing), w(rental.address), w(rental.owner), w(rental.renter)])
 
+/** 出品の価格を変える（エージェントの鍵・GPU 名・性能はそのまま） */
+export const updatePriceIx = (owner: PublicKey, l: Listing, lamportsPerMinute: number) =>
+  ix(
+    'update_listing',
+    {
+      operator: l.operator,
+      gpu: l.gpu,
+      tflops_x100: Math.round(l.tflops * 100),
+      lamports_per_minute: new BN(lamportsPerMinute),
+    },
+    [r(owner, true), w(l.address)],
+  )
+
 export const closeListingIx = (owner: PublicKey, listing: PublicKey) =>
   ix('close_listing', {}, [w(owner, true), w(listing)])
 

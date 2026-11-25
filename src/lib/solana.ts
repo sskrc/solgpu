@@ -24,13 +24,45 @@ export const explorer = (path: string) =>
 export const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr')
 export const FEE_BUFFER_LAMPORTS = 10_000
 
-/** 価格ルール（エージェントと同じ）: 計測 TFLOPS × 2,000 lamports / 分、最低 10,000 lamports / 分 */
+/** 性能から出す目安の価格（エージェントと同じ）: 計測 TFLOPS × 2,000 lamports / 分、最低 10,000 lamports / 分 */
 export const LAMPORTS_PER_TFLOPS_MINUTE = 2_000
 export const MIN_LAMPORTS_PER_MINUTE = 10_000
+/** プログラムが受け付ける価格の上限（1 SOL / 分） */
+export const MAX_LAMPORTS_PER_MINUTE = 1_000_000_000
+
+/** 目安の誤差（TFLOPS を 0.01 単位に丸めることによる最大のずれ） */
+const REFERENCE_TOLERANCE_LAMPORTS = LAMPORTS_PER_TFLOPS_MINUTE * 0.005
+
+/** 性能（TFLOPS）から算出した 1 分あたりの目安の価格 */
+export const referencePrice = (tflops: number) =>
+  Math.max(MIN_LAMPORTS_PER_MINUTE, Math.round(tflops * LAMPORTS_PER_TFLOPS_MINUTE))
+
+/** 入力された「SOL / 分」を lamports にする。範囲外・不正なら理由を返す */
+export function parsePrice(input: string): { lamports: number } | { error: string } {
+  const sol = Number(input)
+  if (!input.trim() || !Number.isFinite(sol) || sol <= 0) return { error: '価格を SOL で入力してください。' }
+  const lamports = Math.round(sol * LAMPORTS_PER_SOL)
+  if (lamports < MIN_LAMPORTS_PER_MINUTE || lamports > MAX_LAMPORTS_PER_MINUTE)
+    return {
+      error: `価格は ${lamportsToSol(MIN_LAMPORTS_PER_MINUTE)}〜${lamportsToSol(MAX_LAMPORTS_PER_MINUTE)} SOL / 分の範囲で入力してください。`,
+    }
+  return { lamports }
+}
 
 export const shorten = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`
-export const formatSol = (n: number) => String(Number(n.toFixed(9)))
+/** SOL の表示（最大 9 桁。指数表記にしない） */
+export const formatSol = (n: number) => n.toFixed(9).replace(/\.?0+$/, '')
 export const lamportsToSol = (l: number) => formatSol(l / LAMPORTS_PER_SOL)
+
+/** 価格が目安と比べていくら高い・安いか（例：「目安より 0.00001 SOL 高い（+38%）」） */
+export function priceDiffLabel(price: number, reference: number) {
+  const diff = price - reference
+  // 性能はチェーン上で小数第 2 位に丸めて保存されるので、目安には最大 10 lamports の誤差がある
+  if (Math.abs(diff) <= REFERENCE_TOLERANCE_LAMPORTS) return '目安どおり'
+  const pct = Math.round((Math.abs(diff) / reference) * 100)
+  const rate = pct < 1 ? '1% 未満' : `${diff > 0 ? '+' : '−'}${pct}%`
+  return `目安より ${lamportsToSol(Math.abs(diff))} SOL ${diff > 0 ? '高い' : '安い'}（${rate}）`
+}
 
 export function memoIx(signer: PublicKey, text: string) {
   return new TransactionInstruction({

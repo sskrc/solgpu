@@ -528,7 +528,7 @@ def main():
         print("\n" + "=" * 70)
         print(" SolGPU エージェント起動完了")
         print(f"   GPU          : {agent.state['bench']['gpu']}")
-        print(f"   価格         : {agent.state['bench']['lamportsPerMinute'] / 1e9:.6f} SOL / 分")
+        print(f"   目安の価格   : {agent.state['bench']['lamportsPerMinute'] / 1e9:.6f} SOL / 分")
         print(f"   エージェント : {agent.public_url}")
         print(f"   エージェント鍵: {agent.operator_address}")
         if agent.listing and agent.activation_used:
