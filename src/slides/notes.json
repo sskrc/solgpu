@@ -1,42 +1,76 @@
-[
-  {
-    "seconds": 10,
-    "script": "SolGPU です。GPU のない学生が、余っている誰かの GPU を分単位で借りられるマーケットです。"
-  },
-  {
-    "seconds": 20,
-    "script": "AI を学ぶ学生の多くは、ノート PC に GPU がありません。CPU で長い時間待つか、クラウドを契約するしかありません。実際に同じ行列の計算を測ると、CPU は GPU の約 60 倍かかりました。一方で、個人の PC の GPU は多くの時間あまっています。"
-  },
-  {
-    "seconds": 20,
-    "script": "SolGPU では、貸し手はエージェントを起動するだけ。性能を測って価格が自動で決まり、出品されます。借り手は一覧から選んで代金を預けると、10〜30 秒でブラウザの Jupyter からその GPU が使えます。"
-  },
-  {
-    "seconds": 65,
-    "script": "では実際に借りてみます。GPU を選んで、1 分と入力し、Phantom で承認します。代金はいま、貸し手ではなくプログラムの口座に預けられました。マイレンタルを開くと、貸し手の準備ができて「Jupyter を開く」ボタンが出ます。開いて、GPU で 4096×4096 の行列の掛け算を実行します。……結果が出ました。最後に Solana Explorer で、いまの預金の取引が記録されていることを確認できます。時間が終わると、代金は自動で貸し手に支払われます。\n[準備] 貸し手エージェント起動済み・Phantom を Devnet・残高確認。\n[静止画] ①一覧で承認する画面 ②マイレンタルの「Jupyter を開く」 ③Jupyter の計算結果 ④Explorer の取引。動かなければこの 4 枚に切り替えて同じ説明をする。"
-  },
-  {
-    "seconds": 35,
-    "script": "なぜブロックチェーンか。知らない人同士で、間に運営者を置かずにお金を預けるためです。代金はプログラムが預かり、支払先は出品時の受取先、返金先は借り手に固定されています。貸し手が 5 分以内に開始しなければ、借り手に全額戻ります。Devnet で実際に動いています。"
-  },
-  {
-    "seconds": 20,
-    "script": "開発は Claude Code に、プログラム、Web アプリ、エージェントの実装からデプロイまで任せました。画面が AI っぽくなったので Astryx を指定して作り直し、デプロイの容量不足はエラーを読ませて解決しました。開発期間は約 3 日です。"
-  },
-  {
-    "seconds": 10,
-    "script": "今後は、GPU を本当に使えたかの証明と、借り手のコードの隔離に取り組みます。ありがとうございました。"
-  },
-  {
-    "seconds": 0,
-    "script": "付録（投影しない）：想定Q&A"
-  },
-  {
-    "seconds": 0,
-    "script": "付録（投影しない）：想定Q&A"
-  },
-  {
-    "seconds": 0,
-    "script": "付録（投影しない）：想定Q&A"
-  }
-]
+{
+  "ja": [
+    {
+      "seconds": 10,
+      "script": "SolGPU です。GPU のない学生が、余っている誰かの GPU を分単位で借りられるマーケットです。"
+    },
+    {
+      "seconds": 20,
+      "script": "AI を学ぶ学生の多くは、ノート PC に GPU がありません。CPU で長い時間待つか、クラウドを契約するしかありません。実際に同じ行列の計算を測ると、CPU は GPU の約 60 倍かかりました。一方で、個人の PC の GPU は多くの時間あまっています。"
+    },
+    {
+      "seconds": 20,
+      "script": "SolGPU では、貸し手はエージェントを起動するだけで出品できます。借り手は一覧から選んで代金を預けると、10〜30 秒でブラウザの Jupyter からその GPU が使えます。"
+    },
+    {
+      "seconds": 30,
+      "script": "では実際に、出品されている V100 を借りてみます。V100 を選んで 5 分と入力し、Phantom で承認します。代金はいま、貸し手ではなくプログラムの口座に預けられました。マイレンタルから Jupyter を開き、画像生成のセルを実行します。生成している間に、仕組みを説明します。\n[操作] 一覧で V100 →「5」分 → 承認 → マイレンタル →「Jupyter を開く」→ セルを貼って Shift+Enter → スライド 5 に戻る"
+    },
+    {
+      "seconds": 35,
+      "script": "なぜブロックチェーンか。知らない人同士で、間に運営者を置かずにお金を預けるためです。代金はプログラムが預かり、支払先は出品時の受取先、返金先は借り手に固定されています。貸し手が 5 分以内に開始しなければ、借り手に全額戻ります。Devnet で実際に動いています。"
+    },
+    {
+      "seconds": 20,
+      "script": "開発は Claude Code に、プログラム、Web アプリ、エージェントの実装からデプロイまで任せました。画面が AI っぽくなったので Astryx を指定して作り直し、デプロイの容量不足はエラーを読ませて解決しました。開発期間は約 3 日です。"
+    },
+    {
+      "seconds": 30,
+      "script": "では V100 に戻ります。……4 枚の画像ができました。ノート PC では難しい画像生成が、借りた GPU で動きました。Solana Explorer を開くと、さきほどの預け入れの取引が記録されています。時間が終わると、代金は自動で貸し手に支払われます。\n[操作] Jupyter のタブ → 画像を見せる → マイレンタルの取引リンクから Explorer\n[動かないとき] このスライドの 4 枚（同じコード・同じシードで事前に生成）を見せて、同じ説明をする"
+    },
+    {
+      "seconds": 15,
+      "script": "今後は、GPU を本当に使えたかの証明と、借り手のコードの隔離に取り組みます。ありがとうございました。"
+    },
+    { "seconds": 0, "script": "付録（投影しない）：想定Q&A" },
+    { "seconds": 0, "script": "付録（投影しない）：想定Q&A" },
+    { "seconds": 0, "script": "付録（投影しない）：想定Q&A" }
+  ],
+  "en": [
+    {
+      "seconds": 10,
+      "script": "This is SolGPU. Students without a GPU can rent someone's idle GPU, by the minute."
+    },
+    {
+      "seconds": 20,
+      "script": "Many students only have a laptop with no GPU. So AI homework takes a long time. We tested it. The CPU was about sixty times slower. But many home GPUs are not used most of the day."
+    },
+    {
+      "seconds": 20,
+      "script": "SolGPU connects them. A lender starts our app, and the GPU is listed. A renter picks a GPU and pays. In about thirty seconds, they can use it in the browser."
+    },
+    {
+      "seconds": 30,
+      "script": "Let's try it. We rent a V100 GPU. We choose five minutes and approve. Now the program holds the money, not the lender. We open Jupyter and start making images. While it works, let me explain.\n[Do] V100 → 5 min → approve → My Rentals → Open Jupyter → run the cell → back to slide 5"
+    },
+    {
+      "seconds": 35,
+      "script": "Why blockchain? The renter and the lender are strangers. So the program holds the money. It can only pay the lender, or give the money back to the renter. If the lender does not start in five minutes, the renter gets all the money back."
+    },
+    {
+      "seconds": 20,
+      "script": "We built SolGPU with Claude Code in about three days. At first, the screens looked generic. So we chose a design system called Astryx."
+    },
+    {
+      "seconds": 30,
+      "script": "Now, back to the V100. Here are four images. My laptop can't do this, but the rented GPU can. On Solana Explorer, we can see the payment. When time is up, the lender gets paid."
+    },
+    {
+      "seconds": 15,
+      "script": "Next, we want to prove the GPU was really used, and keep the lender's PC safe. Thank you!"
+    },
+    { "seconds": 0, "script": "Appendix (not shown): Q&A" },
+    { "seconds": 0, "script": "Appendix (not shown): Q&A" },
+    { "seconds": 0, "script": "Appendix (not shown): Q&A" }
+  ]
+}
