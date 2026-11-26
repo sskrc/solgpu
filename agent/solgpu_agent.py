@@ -463,7 +463,7 @@ def main():
             pass
     p = argparse.ArgumentParser(description="SolGPU GPU 貸し手エージェント (Devnet)")
     p.add_argument("--port", type=int, default=8765)
-    p.add_argument("--site", default="http://localhost:5173/", help="SolGPU の Web アプリの URL（出品リンク用）")
+    p.add_argument("--site", default="https://sskrc.github.io/solgpu/", help="SolGPU の Web アプリの URL（出品リンク用。ローカル開発時は http://localhost:5173/）")
     p.add_argument("--no-tunnel", action="store_true", help="インターネットに公開せず、この PC 内だけで動かす")
     p.add_argument("--i-understand-the-risk", action="store_true", help="外部公開のリスクを理解したうえで公開する")
     p.add_argument("--rebench", action="store_true", help="ベンチマークをやり直す")

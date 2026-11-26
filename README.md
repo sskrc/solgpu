@@ -225,7 +225,7 @@ bash program/build.sh deploy   # + Devnet へデプロイ（デプロイ用ウ�
 1. リポジトリの **Settings → Pages** で Source を **GitHub Actions** にする
 2. **Actions** タブで「Deploy to GitHub Pages」が緑になるのを待つ
 3. 公開 URL: `https://<ユーザー名>.github.io/<リポジトリ名>/`
-4. 貸し手は `start.bat --site https://<ユーザー名>.github.io/<リポジトリ名>/` で起動すると、出品リンクが公開版を指します
+4. エージェントの出品リンクは標準で公開版（`https://sskrc.github.io/solgpu/`）を指します。ローカルの開発版を使うときは `--site http://localhost:5173/` を付けて起動します
 
 > private リポジトリで Pages を使うには GitHub の有料プランが必要です。
 
