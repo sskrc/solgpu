@@ -157,6 +157,7 @@ def find_cloudflared() -> str | None:
         r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
         r"C:\Program Files\cloudflared\cloudflared.exe",
         os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Links\cloudflared.exe"),
+        os.path.expanduser("~/.local/bin/cloudflared"),
     ]:
         if os.path.exists(p):
             return p
