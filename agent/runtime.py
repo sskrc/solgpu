@@ -178,10 +178,13 @@ def start_tunnel(port: int) -> tuple[subprocess.Popen, str]:
         errors="replace",
     )
     url_holder: list[str] = []
+    errors: list[str] = []
     registered = threading.Event()
 
     def reader():
         for line in proc.stderr:  # type: ignore[union-attr]
+            if " ERR " in line or "failed" in line:
+                errors.append(line.strip())
             m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
             if m and not url_holder:
                 url_holder.append(m.group(0))
@@ -195,7 +198,15 @@ def start_tunnel(port: int) -> tuple[subprocess.Popen, str]:
     deadline = time.time() + 60
     while time.time() < deadline and not (url_holder and registered.is_set()):
         if proc.poll() is not None:
-            raise RuntimeError("cloudflared が終了しました")
+            time.sleep(0.2)  # 終了直前のエラー行を読み切る
+            detail = errors[-1] if errors else "詳細不明"
+            if "429" in detail:
+                raise RuntimeError(
+                    "Cloudflare の Quick Tunnel 作成回数の上限に達しました（429）。"
+                    "しばらく（数十分〜1時間ほど）待ってから再起動してください。"
+                    "PC 内だけで試すなら --no-tunnel で起動できます"
+                )
+            raise RuntimeError(f"cloudflared が終了しました: {detail}")
         time.sleep(0.1)
     if not url_holder:
         kill_tree(proc)
