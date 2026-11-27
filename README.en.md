@@ -94,6 +94,7 @@ Example: Intel Arc 140T (about 13 TFLOPS) → about 0.000026 SOL / min (about 0.
 | `agent/solgpu_agent.py` | The lender agent |
 | `agent/chain.py` | Calls the program from the agent (accept / settle) |
 | `agent/runtime.py` | Benchmark, Jupyter, tunnel and process management |
+| `agent/streamdiffusion/` | StreamDiffusion demo (dedicated kernel setup `setup.sh`, notebook, `sd_demo.py`) |
 | `scripts/e2e-local.ts` | End-to-end test against a local validator |
 | `.github/workflows/deploy.yml` | Automatic deployment to GitHub Pages |
 
@@ -166,6 +167,20 @@ bash setup.sh nvidia   # NVIDIA GPU (older GPUs such as V100 / P100 get the cu12
 5. Under "Your listings" on the "Lend your GPU" tab you can remove listings and settle
 
 > The agent's key is saved in `agent/data/operator.json`. If you delete it, you need to create the listing again.
+
+### 3-4. For demos: StreamDiffusion (NVIDIA GPU, Linux, optional)
+
+When a renter opens Jupyter, **the StreamDiffusion notebook is shown from the start**. Running the cell and pressing the "▶ 生成開始" (start) button begins real-time image generation (sd-turbo, 512×512) on the rented GPU. Edits to the prompt show up in the images immediately.
+
+```bash
+cd agent
+./setup.sh nvidia            # set up the agent first if you have not yet
+./streamdiffusion/setup.sh   # create and register the dedicated kernel (Python 3.11 env) and download the models
+```
+
+- StreamDiffusion pins `diffusers==0.24.0`, so it is installed in a separate environment, `agent/streamdiffusion/.venv`, and registered as the Jupyter kernel **"StreamDiffusion (GPU)"**
+- When it is ready, the agent prints "StreamDiffusion デモ: 有効" (demo enabled) on startup. Otherwise it opens an empty Jupyter Lab as before
+- Reference speed: about 14–16 images per second on a Tesla V100
 
 ### ⚠️ Safety
 
