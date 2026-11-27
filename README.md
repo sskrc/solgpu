@@ -89,6 +89,7 @@ SolGPU は **誰でも自分の GPU を出品でき、誰でも分単位で借�
 | `agent/solgpu_agent.py` | 貸し手エージェント本体 |
 | `agent/chain.py` | エージェントからプログラムを呼ぶ部分（accept / settle） |
 | `agent/runtime.py` | ベンチマーク・Jupyter・トンネル・プロセス管理 |
+| `agent/streamdiffusion/` | StreamDiffusion デモ（専用カーネルの準備 `setup.sh`・ノートブック・`sd_demo.py`） |
 | `scripts/e2e-local.ts` | ローカル validator での通しテスト |
 | `.github/workflows/deploy.yml` | GitHub Pages への自動公開 |
 
@@ -161,6 +162,20 @@ bash setup.sh nvidia   # NVIDIA GPU（V100 / P100 など古い GPU は自動で 
 5. 「GPU を貸す」タブの「あなたの出品」から、取り下げ・精算ができます
 
 > エージェントの鍵は `agent/data/operator.json` に保存されます。消すと出品を作り直す必要があります。
+
+### 3-4. デモ用: StreamDiffusion（NVIDIA GPU・Linux、任意）
+
+借り手の Jupyter を開くと **StreamDiffusion のノートブックが最初から表示** され、セルを実行して「▶ 生成開始」ボタンを押すだけで、借りた GPU でリアルタイム画像生成（sd-turbo, 512×512）が始まります。プロンプトを書き換えると生成中の画像にすぐ反映されます。
+
+```bash
+cd agent
+./setup.sh nvidia            # まだなら先にエージェントを準備
+./streamdiffusion/setup.sh   # 専用カーネル（Python 3.11 環境）の作成・登録とモデルのダウンロード
+```
+
+- StreamDiffusion は `diffusers==0.24.0` 固定のため、エージェントとは別の環境 `agent/streamdiffusion/.venv` に入れ、Jupyter カーネル **「StreamDiffusion (GPU)」** として登録します
+- 準備済みならエージェント起動時に「StreamDiffusion デモ: 有効」と表示されます。未準備のときは従来どおり空の Jupyter Lab を開きます
+- 参考速度: Tesla V100 で 約 14〜16 枚/秒
 
 ### ⚠️ 安全について
 

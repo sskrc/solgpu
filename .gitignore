@@ -36,3 +36,4 @@ program/.anchor
 # Solana keypairs (never commit)
 program/.keys
 *-keypair.json
+agent/streamdiffusion/.venv

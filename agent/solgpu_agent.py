@@ -40,6 +40,8 @@ DATA_DIR = AGENT_DIR / "data"
 STATE_FILE = DATA_DIR / "state.json"
 OPERATOR_FILE = DATA_DIR / "operator.json"
 SESSIONS_DIR = AGENT_DIR / "sessions"
+SD_DIR = AGENT_DIR / "streamdiffusion"  # StreamDiffusion デモ（streamdiffusion/setup.sh で準備）
+SD_NOTEBOOK = "StreamDiffusion.ipynb"
 DEVNET_RPC = "https://api.devnet.solana.com"
 MAX_MINUTES = 240
 MIN_OPERATOR_LAMPORTS = 1_000_000  # 0.001 SOL（accept / settle の手数料用）
@@ -61,6 +63,11 @@ def save_state(state: dict) -> None:
     tmp = STATE_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(STATE_FILE)
+
+
+def streamdiffusion_ready() -> bool:
+    """StreamDiffusion 専用カーネルが Jupyter に登録済みか"""
+    return (Path(sys.prefix) / "share" / "jupyter" / "kernels" / "streamdiffusion" / "kernel.json").exists()
 
 
 class Session:
@@ -299,6 +306,11 @@ class Agent:
                 f"レンタル時間は {s.minutes} 分です。時間になると自動で終了し、このフォルダのファイルは削除されます。\n",
                 encoding="utf-8",
             )
+            open_path = "lab"
+            if streamdiffusion_ready():  # デモ用: StreamDiffusion のノートブックを最初から開く
+                for name in (SD_NOTEBOOK, "sd_demo.py"):
+                    shutil.copy(SD_DIR / name, workdir / name)
+                open_path = f"lab/tree/{SD_NOTEBOOK}"
             port = free_port()
             token = secrets.token_urlsafe(24)
             # 先にトンネルを作り、その URL からのアクセス（ブラウザの Origin）だけを Jupyter に許可する
@@ -339,7 +351,7 @@ class Agent:
                 [build_ix("accept", {"operator": self.operator.pubkey(), "listing": self.state["listing"], "rental": s.rental})],
             )
             accepted = True
-            s.url = f"{base}/lab?token={token}"
+            s.url = f"{base}/{open_path}?token={token}"
             s.expires_at = int(time.time() + s.minutes * 60)
             s.status = "ready"
             log(f"利用開始: {s.minutes} 分 ({time.strftime('%H:%M:%S', time.localtime(s.expires_at))} まで)")
@@ -500,6 +512,8 @@ def main():
         raise SystemExit(2)
 
     agent = Agent(args)
+    log("StreamDiffusion デモ: " + ("有効（借り手の Jupyter にノートブックを表示）" if streamdiffusion_ready()
+                                   else "無効（使うには streamdiffusion/setup.sh を実行）"))
     if args.rebench or "bench" not in agent.state:
         agent.state["bench"] = run_benchmark()
         save_state(agent.state)
