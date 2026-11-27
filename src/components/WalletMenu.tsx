@@ -2,6 +2,7 @@ import { DropdownMenu, DropdownMenuDivider, DropdownMenuItem } from '@astryxdesi
 import { HStack } from '@astryxdesign/core/HStack'
 import { Text } from '@astryxdesign/core/Text'
 import { VStack } from '@astryxdesign/core/VStack'
+import { t } from '../lib/i18n'
 import { explorer, formatSol, shorten } from '../lib/solana'
 import type { Wallet } from '../lib/useWallet'
 
@@ -14,21 +15,21 @@ export function WalletMenu({ wallet, isCompact = false }: { wallet: Wallet; isCo
       {!isCompact && (
       <VStack gap={0} hAlign="end">
         <Text type="supporting" color="secondary">
-          残高
+          {t('残高', 'Balance')}
         </Text>
         <Text weight="semibold">{wallet.balance === null ? '—' : `${formatSol(wallet.balance)} SOL`}</Text>
       </VStack>
       )}
       <DropdownMenu button={{ label: shorten(address), variant: 'secondary' }} alignment="end" menuWidth={260}>
-        <DropdownMenuItem label="Solana Explorer で見る" description={shorten(address)} href={explorer(`address/${address}`)} target="_blank" icon="externalLink" />
+        <DropdownMenuItem label={t('Solana Explorer で見る', 'View on Solana Explorer')} description={shorten(address)} href={explorer(`address/${address}`)} target="_blank" icon="externalLink" />
         <DropdownMenuItem
-          label="残高を更新"
+          label={t('残高を更新', 'Refresh balance')}
           description={wallet.balance === null ? undefined : `${formatSol(wallet.balance)} SOL`}
           onClick={wallet.refreshBalance}
         />
-        <DropdownMenuItem label="Faucet で Devnet SOL を入手" href="https://faucet.solana.com/" target="_blank" icon="externalLink" />
+        <DropdownMenuItem label={t('Faucet で Devnet SOL を入手', 'Get Devnet SOL from the faucet')} href="https://faucet.solana.com/" target="_blank" icon="externalLink" />
         <DropdownMenuDivider />
-        <DropdownMenuItem label="切断" variant="destructive" onClick={wallet.disconnect} />
+        <DropdownMenuItem label={t('切断', 'Disconnect')} variant="destructive" onClick={wallet.disconnect} />
       </DropdownMenu>
     </HStack>
   )

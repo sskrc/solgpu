@@ -3,6 +3,7 @@
  * ブラウザとテストスクリプトの両方から使えるよう、Connection は引数で受け取る
  */
 import { BN, BorshAccountsCoder, BorshInstructionCoder, type Idl } from '@anchor-lang/core'
+import { t } from './i18n'
 import {
   Connection,
   PublicKey,
@@ -232,21 +233,21 @@ export const closeListingIx = (owner: PublicKey, listing: PublicKey) =>
 export const updateAgentIx = (authority: PublicKey, listing: PublicKey, agentUrl: string, active: boolean) =>
   ix('update_agent', { agent_url: agentUrl, active }, [r(authority, true), w(listing)])
 
-/** プログラムのエラーを日本語に */
+/** プログラムのエラーを分かりやすい文に（日本語 / 英語） */
 export function programErrorMessage(raw: string): string | null {
   const map: Record<string, string> = {
-    ListingBusy: 'この GPU は使用中か、他の人が開始待ちです。',
-    ListingInactive: 'この GPU は現在受付を停止しています（エージェントが停止中）。',
-    PriceChanged: '価格が変わりました。一覧を更新してからもう一度お試しください。',
-    InvalidMinutes: 'レンタル時間は 1〜240 分で指定してください。',
-    HasOpenRentals: '未精算のレンタルがあるため取り下げられません。精算・返金が終わってから実行してください。',
-    NotEnded: 'まだ終了時刻になっていません。',
-    NotPending: 'このレンタルはすでに開始されているため、返金できません。',
-    RefundNotAllowed: '開始期限（5 分）を過ぎるまで、借り手以外は返金できません。',
-    AcceptDeadlinePassed: '開始期限を過ぎています。返金を受けてください。',
-    NotOwner: '出品者のウォレットで操作してください。',
-    InvalidUrl: 'エージェントの URL が不正です。',
-    InvalidPrice: '価格が範囲外です。',
+    ListingBusy: t('この GPU は使用中か、他の人が開始待ちです。', 'This GPU is in use or someone else is waiting for it to start.'),
+    ListingInactive: t('この GPU は現在受付を停止しています（エージェントが停止中）。', 'This GPU is not accepting rentals right now (its agent is stopped).'),
+    PriceChanged: t('価格が変わりました。一覧を更新してからもう一度お試しください。', 'The price has changed. Refresh the list and try again.'),
+    InvalidMinutes: t('レンタル時間は 1〜240 分で指定してください。', 'Rental time must be 1–240 minutes.'),
+    HasOpenRentals: t('未精算のレンタルがあるため取り下げられません。精算・返金が終わってから実行してください。', 'It has unsettled rentals, so it cannot be removed. Try again after they are settled or refunded.'),
+    NotEnded: t('まだ終了時刻になっていません。', 'The rental has not ended yet.'),
+    NotPending: t('このレンタルはすでに開始されているため、返金できません。', 'This rental has already started, so it cannot be refunded.'),
+    RefundNotAllowed: t('開始期限（5 分）を過ぎるまで、借り手以外は返金できません。', 'Only the renter can refund before the 5-minute start deadline passes.'),
+    AcceptDeadlinePassed: t('開始期限を過ぎています。返金を受けてください。', 'The start deadline has passed. Please claim your refund.'),
+    NotOwner: t('出品者のウォレットで操作してください。', "Use the lister's wallet for this."),
+    InvalidUrl: t('エージェントの URL が不正です。', 'The agent URL is invalid.'),
+    InvalidPrice: t('価格が範囲外です。', 'The price is out of range.'),
   }
   for (const [k, v] of Object.entries(map)) if (raw.includes(k)) return v
   return null

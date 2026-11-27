@@ -14,6 +14,7 @@ import { Text } from '@astryxdesign/core/Text'
 import { VStack } from '@astryxdesign/core/VStack'
 import { PageHeader } from '../components/PageHeader'
 import { StatusBox, type Status } from '../components/StatusBox'
+import { locale, t } from '../lib/i18n'
 import { agentApi, loadRentals, toKey, type SavedRental, type SessionInfo } from '../lib/market'
 import { fetchRental, fetchRentalsByRenter, refundIx, settleIx, type Rental } from '../lib/program'
 import { connection, explorer, lamportsToSol, shorten, signAndSend, toFriendlyError } from '../lib/solana'
@@ -48,7 +49,7 @@ export function MyRentals({ wallet }: { wallet: Wallet }) {
               rental: c.address.toBase58(),
               listing: c.listing.toBase58(),
               agentUrl: '',
-              gpu: 'GPU（このブラウザ以外で借りたもの）',
+              gpu: t('GPU（このブラウザ以外で借りたもの）', 'GPU (rented from another browser)'),
               minutes: c.minutes,
               lamports: c.amount,
               secret: '',
@@ -106,7 +107,7 @@ export function MyRentals({ wallet }: { wallet: Wallet }) {
 
   const run = async (r: SavedRental, kind: 'refund' | 'settle', chain: Rental) => {
     if (!wallet.phantom || !wallet.publicKey) {
-      setAction((a) => ({ ...a, [r.rental]: { kind: 'error', message: 'ウォレットを接続してください。' } }))
+      setAction((a) => ({ ...a, [r.rental]: { kind: 'error', message: t('ウォレットを接続してください。', 'Connect your wallet.') } }))
       return
     }
     try {
@@ -116,7 +117,7 @@ export function MyRentals({ wallet }: { wallet: Wallet }) {
       )
       setAction((a) => ({
         ...a,
-        [r.rental]: { kind: 'success', title: kind === 'refund' ? '返金されました' : '精算しました', signature },
+        [r.rental]: { kind: 'success', title: kind === 'refund' ? t('返金されました', 'Refunded') : t('精算しました', 'Settled'), signature },
       }))
       wallet.refreshBalance()
       poll(r)
@@ -127,8 +128,11 @@ export function MyRentals({ wallet }: { wallet: Wallet }) {
 
   const header = (
     <PageHeader
-      title="マイレンタル"
-      description="GPU 環境を受け取る秘密の値はこのブラウザにだけ保存されています。返金・精算は Solana 上の記録に基づくので、どのブラウザからでもできます。"
+      title={t('マイレンタル', 'My rentals')}
+      description={t(
+        'GPU 環境を受け取る秘密の値はこのブラウザにだけ保存されています。返金・精算は Solana 上の記録に基づくので、どのブラウザからでもできます。',
+        'The secret used to access your GPU environment is stored only in this browser. Refunds and settlement use the records on Solana, so they work from any browser.',
+      )}
     />
   )
 
@@ -137,9 +141,9 @@ export function MyRentals({ wallet }: { wallet: Wallet }) {
       <VStack gap={6}>
         {header}
         <EmptyState
-          title="まだレンタルはありません"
-          description="「GPU を借りる」タブから、空いている GPU を分単位で借りられます。"
-          actions={<Button label="GPU を借りる" variant="primary" href="#market" />}
+          title={t('まだレンタルはありません', 'No rentals yet')}
+          description={t('「GPU を借りる」タブから、空いている GPU を分単位で借りられます。', 'Rent an available GPU by the minute from the “Rent a GPU” tab.')}
+          actions={<Button label={t('GPU を借りる', 'Rent a GPU')} variant="primary" href="#market" />}
         />
       </VStack>
     )
@@ -163,14 +167,14 @@ export function MyRentals({ wallet }: { wallet: Wallet }) {
           const done = l && c === null
           const isRenter = wallet.publicKey?.toBase58() === c?.renter.toBase58()
 
-          let state: { dot: Dot; label: string; pulse?: boolean } = { dot: 'neutral', label: '確認中' }
-          if (done) state = { dot: 'neutral', label: r.paid ? '完了（精算 / 返金済み）' : '未払い' }
+          let state: { dot: Dot; label: string; pulse?: boolean } = { dot: 'neutral', label: t('確認中', 'Checking') }
+          if (done) state = { dot: 'neutral', label: r.paid ? t('完了（精算 / 返金済み）', 'Done (settled / refunded)') : t('未払い', 'Unpaid') }
           else if (pending)
             state = deadlinePassed
-              ? { dot: 'error', label: '開始されず（返金可）' }
-              : { dot: 'warning', label: '開始待ち', pulse: true }
-          else if (active && !ended) state = { dot: 'success', label: '利用中', pulse: true }
-          else if (ended) state = { dot: 'accent', label: '終了（精算待ち）' }
+              ? { dot: 'error', label: t('開始されず（返金可）', 'Not started (refundable)') }
+              : { dot: 'warning', label: t('開始待ち', 'Waiting to start'), pulse: true }
+          else if (active && !ended) state = { dot: 'success', label: t('利用中', 'In use'), pulse: true }
+          else if (ended) state = { dot: 'accent', label: t('終了（精算待ち）', 'Ended (awaiting settlement)') }
 
           const showJupyter = active && s?.status === 'ready' && remaining > 0
           const total = r.minutes * 60
@@ -183,7 +187,7 @@ export function MyRentals({ wallet }: { wallet: Wallet }) {
                   <VStack gap={0.5}>
                     <Heading level={3}>{r.gpu}</Heading>
                     <Text type="supporting" color="secondary">
-                      {r.minutes} 分・{lamportsToSol(r.lamports)} SOL・{new Date(r.createdAt).toLocaleString('ja-JP')}
+                      {t(`${r.minutes} 分`, `${r.minutes} min`)} · {lamportsToSol(r.lamports)} SOL · {new Date(r.createdAt).toLocaleString(locale())}
                     </Text>
                   </VStack>
                   <HStack gap={1} align="center">
@@ -196,7 +200,10 @@ export function MyRentals({ wallet }: { wallet: Wallet }) {
                   <HStack gap={2} align="center">
                     <Spinner size="sm" />
                     <Text color="secondary">
-                      貸し手が GPU 環境を準備しています（期限まで残り {Math.max(0, Math.floor(c.acceptDeadline - nowSec))} 秒）
+                      {t(
+                        `貸し手が GPU 環境を準備しています（期限まで残り ${Math.max(0, Math.floor(c.acceptDeadline - nowSec))} 秒）`,
+                        `The lender is preparing the GPU environment (${Math.max(0, Math.floor(c.acceptDeadline - nowSec))} s left before the deadline)`,
+                      )}
                     </Text>
                   </HStack>
                 )}
@@ -205,7 +212,7 @@ export function MyRentals({ wallet }: { wallet: Wallet }) {
                   <VStack gap={3}>
                     <HStack gap={4} align="center" wrap="wrap">
                       <Button
-                        label="Jupyter を開く（GPU を使う）"
+                        label={t('Jupyter を開く（GPU を使う）', 'Open Jupyter (use the GPU)')}
                         variant="primary"
                         size="lg"
                         href={s.url}
@@ -213,41 +220,47 @@ export function MyRentals({ wallet }: { wallet: Wallet }) {
                         rel="noreferrer"
                       />
                       <Text size="2xl" weight="bold" hasTabularNumbers>
-                        残り {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}
+                        {t('残り', 'Left')} {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}
                       </Text>
                     </HStack>
-                    <ProgressBar label="残り時間" isLabelHidden value={remaining} max={total} variant="success" />
+                    <ProgressBar label={t('残り時間', 'Time left')} isLabelHidden value={remaining} max={total} variant="success" />
                     <Text type="supporting" color="secondary">
-                      時間になると環境は自動で停止し、ファイルは消えます。必要なものはダウンロードしておいてください。開けない（「サイトにアクセスできません」）場合は
-                      URL の準備中です。10〜30 秒待ってから再読み込みしてください。
+                      {t(
+                        '時間になると環境は自動で停止し、ファイルは消えます。必要なものはダウンロードしておいてください。開けない（「サイトにアクセスできません」）場合は URL の準備中です。10〜30 秒待ってから再読み込みしてください。',
+                        'When time is up, the environment stops and its files are deleted, so download anything you need. If it will not open (“This site can’t be reached”), the URL is still being set up: wait 10–30 seconds and reload.',
+                      )}
                     </Text>
                   </VStack>
                 )}
 
-                {s?.status === 'error' && <Banner status="error" title={`貸し手側でエラー: ${s.error}`} />}
+                {s?.status === 'error' && <Banner status="error" title={`${t('貸し手側でエラー', 'Error on the lender side')}: ${s.error}`} />}
                 {l?.agentError && !done && (
                   <Banner
                     status="warning"
-                    title={/failed to fetch|タイムアウト/i.test(l.agentError) ? '貸し手のエージェントに接続できません' : l.agentError}
+                    title={
+                      /failed to fetch|タイムアウト|timed out/i.test(l.agentError)
+                        ? t('貸し手のエージェントに接続できません', "Cannot reach the lender's agent")
+                        : l.agentError
+                    }
                   />
                 )}
                 {deadlinePassed && (
-                  <Text>貸し手が期限内に開始しなかったため、全額返金を受けられます。</Text>
+                  <Text>{t('貸し手が期限内に開始しなかったため、全額返金を受けられます。', 'The lender did not start in time, so you can get a full refund.')}</Text>
                 )}
-                {ended && <Text>利用時間が終わりました。通常はエージェントが自動で精算します。</Text>}
+                {ended && <Text>{t('利用時間が終わりました。通常はエージェントが自動で精算します。', 'Your time is over. The agent usually settles automatically.')}</Text>}
 
                 <HStack gap={3} align="center" wrap="wrap">
                   {pending && (isRenter || deadlinePassed) && (
                     <Button
-                      label={deadlinePassed ? '返金を受ける' : 'キャンセルして返金'}
+                      label={deadlinePassed ? t('返金を受ける', 'Get refund') : t('キャンセルして返金', 'Cancel and refund')}
                       variant={deadlinePassed ? 'primary' : 'secondary'}
                       size="sm"
                       onClick={() => run(r, 'refund', c)}
                     />
                   )}
-                  {ended && <Button label="精算する" size="sm" onClick={() => run(r, 'settle', c)} />}
+                  {ended && <Button label={t('精算する', 'Settle')} size="sm" onClick={() => run(r, 'settle', c)} />}
                   <Link href={explorer(`address/${r.rental}`)} isExternalLink type="supporting">
-                    エスクロー <Code color="inherit">{shorten(r.rental)}</Code>
+                    {t('エスクロー', 'Escrow')} <Code color="inherit">{shorten(r.rental)}</Code>
                   </Link>
                 </HStack>
                 <StatusBox status={action[r.rental] ?? { kind: 'idle' }} />

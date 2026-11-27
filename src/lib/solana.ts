@@ -9,6 +9,7 @@ import {
 } from '@solana/web3.js'
 import { Buffer } from 'buffer'
 import type { PhantomProvider } from '../phantom'
+import { t } from './i18n'
 import { programErrorMessage } from './program'
 
 // このアプリは Devnet 専用。接続先を固定しているので、Phantom の設定に関係なく Devnet に送信されます
@@ -31,7 +32,7 @@ export const MIN_LAMPORTS_PER_MINUTE = 10_000
 export const MAX_LAMPORTS_PER_MINUTE = 1_000_000_000
 
 /** 目安の誤差（TFLOPS を 0.01 単位に丸めることによる最大のずれ） */
-const REFERENCE_TOLERANCE_LAMPORTS = LAMPORTS_PER_TFLOPS_MINUTE * 0.005
+export const REFERENCE_TOLERANCE_LAMPORTS = LAMPORTS_PER_TFLOPS_MINUTE * 0.005
 
 /** 性能（TFLOPS）から算出した 1 分あたりの目安の価格 */
 export const referencePrice = (tflops: number) =>
@@ -40,11 +41,14 @@ export const referencePrice = (tflops: number) =>
 /** 入力された「SOL / 分」を lamports にする。範囲外・不正なら理由を返す */
 export function parsePrice(input: string): { lamports: number } | { error: string } {
   const sol = Number(input)
-  if (!input.trim() || !Number.isFinite(sol) || sol <= 0) return { error: '価格を SOL で入力してください。' }
+  if (!input.trim() || !Number.isFinite(sol) || sol <= 0) return { error: t('価格を SOL で入力してください。', 'Enter a price in SOL.') }
   const lamports = Math.round(sol * LAMPORTS_PER_SOL)
   if (lamports < MIN_LAMPORTS_PER_MINUTE || lamports > MAX_LAMPORTS_PER_MINUTE)
     return {
-      error: `価格は ${lamportsToSol(MIN_LAMPORTS_PER_MINUTE)}〜${lamportsToSol(MAX_LAMPORTS_PER_MINUTE)} SOL / 分の範囲で入力してください。`,
+      error: t(
+        `価格は ${lamportsToSol(MIN_LAMPORTS_PER_MINUTE)}〜${lamportsToSol(MAX_LAMPORTS_PER_MINUTE)} SOL / 分の範囲で入力してください。`,
+        `Enter a price between ${lamportsToSol(MIN_LAMPORTS_PER_MINUTE)} and ${lamportsToSol(MAX_LAMPORTS_PER_MINUTE)} SOL / min.`,
+      ),
     }
   return { lamports }
 }
@@ -53,15 +57,21 @@ export const shorten = (s: string) => `${s.slice(0, 4)}…${s.slice(-4)}`
 /** SOL の表示（最大 9 桁。指数表記にしない） */
 export const formatSol = (n: number) => n.toFixed(9).replace(/\.?0+$/, '')
 export const lamportsToSol = (l: number) => formatSol(l / LAMPORTS_PER_SOL)
+/** 「SOL / 分」の単位表記 */
+export const perMin = () => t('SOL / 分', 'SOL / min')
 
 /** 価格が目安と比べていくら高い・安いか（例：「目安より 0.00001 SOL 高い（+38%）」） */
 export function priceDiffLabel(price: number, reference: number) {
   const diff = price - reference
   // 性能はチェーン上で小数第 2 位に丸めて保存されるので、目安には最大 10 lamports の誤差がある
-  if (Math.abs(diff) <= REFERENCE_TOLERANCE_LAMPORTS) return '目安どおり'
+  if (Math.abs(diff) <= REFERENCE_TOLERANCE_LAMPORTS) return t('目安どおり', 'At the reference price')
   const pct = Math.round((Math.abs(diff) / reference) * 100)
-  const rate = pct < 1 ? '1% 未満' : `${diff > 0 ? '+' : '−'}${pct}%`
-  return `目安より ${lamportsToSol(Math.abs(diff))} SOL ${diff > 0 ? '高い' : '安い'}（${rate}）`
+  const rate = pct < 1 ? t('1% 未満', 'under 1%') : `${diff > 0 ? '+' : '−'}${pct}%`
+  const amount = lamportsToSol(Math.abs(diff))
+  return t(
+    `目安より ${amount} SOL ${diff > 0 ? '高い' : '安い'}（${rate}）`,
+    `${amount} SOL ${diff > 0 ? 'above' : 'below'} reference (${rate})`,
+  )
 }
 
 export function memoIx(signer: PublicKey, text: string) {
@@ -83,6 +93,13 @@ export class SentButUnconfirmedError extends Error {
   }
 }
 
+/** オンチェーンでトランザクションが失敗した（確認自体はできている） */
+class TxFailedError extends Error {
+  constructor(detail: string) {
+    super(`${t('トランザクションが失敗しました', 'Transaction failed')}: ${detail}`)
+  }
+}
+
 /**
  * Phantom で署名 → Devnet に送信 → 確定まで待つ、の共通処理
  * onStep で進捗メッセージを画面に出せます
@@ -96,18 +113,18 @@ export async function signAndSend(
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed')
   const tx = new Transaction({ feePayer: payer, blockhash, lastValidBlockHeight }).add(...instructions)
 
-  onStep('Phantom で内容を確認し、「承認」を押してください…')
+  onStep(t('Phantom で内容を確認し、「承認」を押してください…', 'Review the transaction in Phantom and press “Confirm”…'))
   const signed = await phantom.signTransaction(tx)
 
-  onStep('Devnet に送信しています…')
+  onStep(t('Devnet に送信しています…', 'Sending to Devnet…'))
   const signature = await connection.sendRawTransaction(signed.serialize())
 
-  onStep('承認（コンファーム）を待っています…')
+  onStep(t('承認（コンファーム）を待っています…', 'Waiting for confirmation…'))
   try {
     const result = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed')
-    if (result.value.err) throw new Error(`トランザクションが失敗しました: ${JSON.stringify(result.value.err)}`)
+    if (result.value.err) throw new TxFailedError(JSON.stringify(result.value.err))
   } catch (err) {
-    if (err instanceof Error && err.message.startsWith('トランザクションが失敗')) throw err
+    if (err instanceof TxFailedError) throw err
     throw new SentButUnconfirmedError(signature, err)
   }
   return signature
@@ -120,7 +137,10 @@ export async function checkRentForRecipient(to: PublicKey, lamports: number): Pr
     connection.getMinimumBalanceForRentExemption(0),
   ])
   if (!info && lamports < rentMin) {
-    return `送金先はまだ使われていないアドレスです。最低 ${lamportsToSol(rentMin)} SOL 以上を送ってください。`
+    return t(
+      `送金先はまだ使われていないアドレスです。最低 ${lamportsToSol(rentMin)} SOL 以上を送ってください。`,
+      `The recipient address has never been used. Send at least ${lamportsToSol(rentMin)} SOL.`,
+    )
   }
   return null
 }
@@ -131,11 +151,14 @@ export function transferIx(from: PublicKey, to: PublicKey, lamports: number) {
 
 export type FriendlyError = { message: string; detail?: string; signature?: string }
 
-/** エラーを初心者にも分かる日本語に変換する */
+/** エラーを初心者にも分かる文（日本語 / 英語）に変換する */
 export function toFriendlyError(err: unknown): FriendlyError {
   if (err instanceof SentButUnconfirmedError) {
     return {
-      message: '送信済みですが、完了を確認できませんでした。再実行する前に Explorer で結果を確認してください（二重送金の防止）。',
+      message: t(
+        '送信済みですが、完了を確認できませんでした。再実行する前に Explorer で結果を確認してください（二重送金の防止）。',
+        'Sent, but completion could not be confirmed. Check the result on Explorer before retrying (to avoid paying twice).',
+      ),
       detail: String((err.cause as Error)?.message ?? err.cause),
       signature: err.signature,
     }
@@ -144,35 +167,52 @@ export function toFriendlyError(err: unknown): FriendlyError {
   const raw = [e?.message ?? String(err), ...(e?.logs ?? [])].join('\n')
   if (/program that does not exist|Unsupported program id|ProgramAccountNotFound/i.test(raw)) {
     return {
-      message: 'SolGPU プログラムがまだこのネットワーク（Devnet）にデプロイされていません。デプロイが完了するまで出品・レンタルはできません。',
+      message: t(
+        'SolGPU プログラムがまだこのネットワーク（Devnet）にデプロイされていません。デプロイが完了するまで出品・レンタルはできません。',
+        'The SolGPU program is not deployed on this network (Devnet) yet. Listing and renting are unavailable until it is.',
+      ),
       detail: raw,
     }
   }
   const programMsg = programErrorMessage(raw)
   if (programMsg) return { message: programMsg, detail: raw }
   if (e?.code === 4001 || /user rejected|reject|cancel|denied/i.test(raw)) {
-    return { message: 'ウォレットで承認がキャンセルされました。', detail: raw }
+    return { message: t('ウォレットで承認がキャンセルされました。', 'The request was cancelled in the wallet.'), detail: raw }
   }
   if (/429|too many requests|rate limit/i.test(raw)) {
-    return { message: 'Devnet の RPC が混雑しています（リクエスト制限）。少し待ってから再試行してください。', detail: raw }
+    return {
+      message: t(
+        'Devnet の RPC が混雑しています（リクエスト制限）。少し待ってから再試行してください。',
+        'The Devnet RPC is busy (rate limited). Wait a moment and try again.',
+      ),
+      detail: raw,
+    }
   }
   if (/insufficient funds for rent/i.test(raw)) {
     return {
-      message:
+      message: t(
         '残高の条件を満たしていません。送金先が未使用のアドレスなら約 0.001 SOL 以上を送るか、送金後の自分の残高が少なくなりすぎないよう金額を減らしてください。',
+        'Balance requirement not met. If the recipient is a new address, send at least about 0.001 SOL, or lower the amount so your own balance does not get too low.',
+      ),
       detail: raw,
     }
   }
   if (/insufficient (funds|lamports)|no record of a prior credit|0x1\b/i.test(raw)) {
-    return { message: '残高が足りません。Faucet で Devnet の SOL を入手してください。', detail: raw }
+    return { message: t('残高が足りません。Faucet で Devnet の SOL を入手してください。', 'Insufficient balance. Get Devnet SOL from the faucet.'), detail: raw }
   }
   if (/block height exceeded|expired|blockhash not found/i.test(raw)) {
-    return { message: 'トランザクションの有効期限が切れました。もう一度お試しください。', detail: raw }
+    return { message: t('トランザクションの有効期限が切れました。もう一度お試しください。', 'The transaction expired. Please try again.'), detail: raw }
   }
   if (/failed to fetch|networkerror|load failed/i.test(raw)) {
-    return { message: '接続できませんでした。インターネット接続、または貸し手のエージェントが起動しているか確認してください。', detail: raw }
+    return {
+      message: t(
+        '接続できませんでした。インターネット接続、または貸し手のエージェントが起動しているか確認してください。',
+        "Could not connect. Check your internet connection and whether the lender's agent is running.",
+      ),
+      detail: raw,
+    }
   }
-  return { message: raw.length < 200 ? raw : '処理に失敗しました。', detail: raw }
+  return { message: raw.length < 200 ? raw : t('処理に失敗しました。', 'Something went wrong.'), detail: raw }
 }
 
 export { LAMPORTS_PER_SOL, PublicKey }

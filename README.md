@@ -1,5 +1,7 @@
 # SolGPU — みんなの GPU を SOL で貸し借り（Solana Devnet・エスクロー付き）
 
+**日本語** | [English](README.en.md)
+
 AI 需要で GPU が足りない一方、個人の PC の GPU は多くの時間あまっています。
 SolGPU は **誰でも自分の GPU を出品でき、誰でも分単位で借りられる** GPU マーケットプレイスです。
 出品とレンタルは **Anchor で書いた Solana プログラム** が管理し、代金は **エスクロー** で守られます。
@@ -9,6 +11,8 @@ SolGPU は **誰でも自分の GPU を出品でき、誰でも分単位で借�
 - 終了後、代金はプログラムが貸し手に支払う。貸し手が開始しなければ **全額返金**
 
 > ⚠️ **Devnet（テスト用ネットワーク）専用** です。本物の SOL は動きません。
+
+Web アプリは右上の **日本語 / EN** で英語表示に切り替えられます（`?lang=en` を付けて開いても英語になります）。
 
 ---
 
@@ -79,6 +83,7 @@ SolGPU は **誰でも自分の GPU を出品でき、誰でも分単位で借�
 | `program/programs/solgpu-market/tests/test_market.rs` | テスト（成功の流れ・不正操作・期限切れ返金など） |
 | `program/build.sh` | ビルド・テスト・デプロイ（WSL / Linux） |
 | `src/lib/program.ts` | Web アプリからプログラムを呼ぶ部分 |
+| `src/lib/i18n.ts` | 日本語 / 英語の切り替え |
 | `src/pages/Market.tsx` | GPU を借りる |
 | `src/pages/MyRentals.tsx` | マイレンタル（Jupyter を開く・返金・精算） |
 | `src/pages/Lend.tsx` | GPU を貸す（出品・取り下げ・精算） |

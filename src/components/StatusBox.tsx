@@ -7,6 +7,7 @@ import { Link } from '@astryxdesign/core/Link'
 import { Spinner } from '@astryxdesign/core/Spinner'
 import { Text } from '@astryxdesign/core/Text'
 import { VStack } from '@astryxdesign/core/VStack'
+import { t } from '../lib/i18n'
 import { explorer, shorten, type FriendlyError } from '../lib/solana'
 
 export type Status =
@@ -22,7 +23,7 @@ function TxLink({ signature, label }: { signature: string; label: string }) {
         {label}
       </Link>
       <Text type="supporting" color="secondary">
-        署名 <Code color="secondary">{shorten(signature)}</Code>
+        {t('署名', 'Signature')} <Code color="secondary">{shorten(signature)}</Code>
       </Text>
     </HStack>
   )
@@ -35,7 +36,7 @@ export function StatusBox({ status }: { status: Status }) {
   if (status.kind === 'busy') {
     return (
       <HStack gap={2} align="center" aria-live="polite">
-        <Spinner size="sm" aria-label="処理中" />
+        <Spinner size="sm" aria-label={t('処理中', 'Processing')} />
         <Text color="secondary">{status.message}</Text>
       </HStack>
     )
@@ -48,7 +49,7 @@ export function StatusBox({ status }: { status: Status }) {
         {hasBody && (
           <VStack gap={2}>
             {status.body}
-            {status.signature && <TxLink signature={status.signature} label="Solana Explorer で確認" />}
+            {status.signature && <TxLink signature={status.signature} label={t('Solana Explorer で確認', 'View on Solana Explorer')} />}
           </VStack>
         )}
       </Banner>
@@ -60,9 +61,9 @@ export function StatusBox({ status }: { status: Status }) {
     <Banner status="error" title={status.message} collapsible={false}>
       {(status.signature || hasDetail) && (
         <VStack gap={2}>
-          {status.signature && <TxLink signature={status.signature} label="Solana Explorer で結果を確認" />}
+          {status.signature && <TxLink signature={status.signature} label={t('Solana Explorer で結果を確認', 'Check the result on Solana Explorer')} />}
           {hasDetail && (
-            <Collapsible trigger={<Text type="supporting">詳しいエラー内容</Text>} defaultIsOpen={false}>
+            <Collapsible trigger={<Text type="supporting">{t('詳しいエラー内容', 'Error details')}</Text>} defaultIsOpen={false}>
               <Text type="code" color="secondary" wordBreak="break-all">
                 {status.detail}
               </Text>

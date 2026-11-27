@@ -1,6 +1,7 @@
 import { PublicKey } from '@solana/web3.js'
 import { fetchListings, type Listing } from './program'
 import { connection } from './solana'
+import { t } from './i18n'
 
 // ===== 貸し手エージェントとの通信 =====
 export type AgentInfo = {
@@ -41,10 +42,10 @@ async function call<T>(base: string, path: string, body?: unknown, timeoutMs = 6
       signal: ctrl.signal,
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data.error ?? `エージェントがエラーを返しました (${res.status})`)
+    if (!res.ok) throw new Error(data.error ?? `${t('エージェントがエラーを返しました', 'The agent returned an error')} (${res.status})`)
     return data as T
   } catch (err) {
-    if ((err as Error).name === 'AbortError') throw new Error('エージェントからの応答がタイムアウトしました')
+    if ((err as Error).name === 'AbortError') throw new Error(t('エージェントからの応答がタイムアウトしました', 'The agent timed out'))
     throw err
   } finally {
     clearTimeout(timer)
