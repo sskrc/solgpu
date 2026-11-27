@@ -116,29 +116,47 @@ npm run dev
 
 ### 3-1. 必要なもの
 
-- Python 3.10〜3.12（インストール時に「Add python.exe to PATH」にチェック）
-- cloudflared（インターネット公開用）: `winget install --id Cloudflare.cloudflared -e`
+- Git
+- Python 3.10〜3.12（Windows ではインストール時に「Add python.exe to PATH」にチェック）
+- cloudflared（インターネット公開用）: Windows は `winget install --id Cloudflare.cloudflared -e`。Linux は `setup.sh` が自動で入れます
 - GPU の最新ドライバ
 
-### 3-2. エージェントの準備（最初の 1 回だけ）
+### 3-2. GitHub からクローンして準備（最初の 1 回だけ）
+
+Windows（PowerShell）:
 
 ```powershell
-cd Sorana\agent
+git clone https://github.com/sskrc/solgpu.git
+cd solgpu\agent
 .\setup.bat intel     # Intel Arc / Core Ultra 内蔵 GPU（例: Arc 140T）
 # .\setup.bat nvidia  # NVIDIA GPU
 # .\setup.bat cpu     # GPU なし
 ```
 
+Linux / macOS:
+
+```bash
+git clone https://github.com/sskrc/solgpu.git
+cd solgpu/agent
+bash setup.sh nvidia   # NVIDIA GPU（V100 / P100 など古い GPU は自動で cu126 版 PyTorch）
+# bash setup.sh intel  # Intel GPU
+# bash setup.sh cpu    # GPU なし（macOS は cpu で Apple GPU も使えます）
+```
+
 ### 3-3. 起動して出品
 
 ```powershell
-.\start.bat
+.\start.bat                                                # Windows
+```
+
+```bash
+.venv/bin/python solgpu_agent.py --i-understand-the-risk   # Linux / macOS
 ```
 
 1. 初回はベンチマークが走り、価格が決まります（やり直すには `start.bat --rebench`）
 2. ブラウザで出品ページが自動で開きます。Phantom を接続して「このウォレットで出品する」→ 承認
    - 出品の保証金 約 0.003 SOL（取り下げると戻る）と、エージェントの手数料用 0.01 SOL を支払います
-3. 「GPU を借りる」タブに表示されれば完了。**次回からは `start.bat` を起動するだけ** で、エージェントが自動で新しい URL を書き込み受付を再開します
+3. 「GPU を借りる」タブに表示されれば完了。**次回からは起動コマンドを実行するだけ** で、エージェントが自動で新しい URL を書き込み受付を再開します
 4. 停止は `Ctrl + C`（自動で「受付停止」が記録されます）
 5. 「GPU を貸す」タブの「あなたの出品」から、取り下げ・精算ができます
 

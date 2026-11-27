@@ -11,21 +11,25 @@ import { Deck, type Lang } from './Deck'
 // ?export=1 のときは余白なしで縦に並べる（書き出し用）
 const params = new URLSearchParams(location.search)
 const isExport = params.has('export')
-// ?lang=en で英語版
-const lang: Lang = params.get('lang') === 'en' ? 'en' : 'ja'
-document.documentElement.lang = lang
+// ?lang=en で英語版のみ、?lang=ja で日本語版のみ。指定なしは日本語版のあとに英語版（書き出しと同じ）
+const only = params.get('lang')
+const langs: Lang[] = only === 'en' ? ['en'] : only === 'ja' ? ['ja'] : ['ja', 'en']
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <Theme theme={themes[defaultThemeSlug]} mode={themeModes[defaultThemeSlug] ?? 'system'}>
       {isExport ? (
         <VStack gap={0}>
-          <Deck lang={lang} />
+          {langs.map((l) => (
+            <Deck key={l} lang={l} />
+          ))}
         </VStack>
       ) : (
         <Center axis="horizontal" padding={8}>
           <VStack gap={8}>
-            <Deck lang={lang} />
+            {langs.map((l) => (
+              <Deck key={l} lang={l} />
+            ))}
           </VStack>
         </Center>
       )}

@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "slides:export": "node scripts/export-slides.mjs"
+    "slides:export": "node scripts/export-slides.mjs",
+    "slides:shot": "node scripts/shot-site.mjs"
   },
   "dependencies": {
     "@anchor-lang/core": "^1.2.2",

@@ -46,6 +46,15 @@ import {
 } from '../lib/solana'
 import type { Wallet } from '../lib/useWallet'
 
+/** エージェントのソースコード（貸し手はここからクローンして準備する） */
+const REPO_URL = 'https://github.com/sskrc/solgpu'
+const SETUP_WINDOWS = `git clone ${REPO_URL}.git
+cd solgpu\\agent
+.\\setup.bat nvidia  # Intel Arc なら intel、GPU なしなら cpu`
+const SETUP_LINUX = `git clone ${REPO_URL}.git
+cd solgpu/agent
+bash setup.sh nvidia   # V100 など古い NVIDIA も自動で対応。GPU なしなら cpu`
+
 /** エージェントの手数料（利用開始・精算の記録）用に、出品時に送っておく額 */
 const OPERATOR_FUND_LAMPORTS = 10_000_000 // 0.01 SOL ≒ 2,000 回分
 const OPERATOR_MIN_LAMPORTS = 2_000_000
@@ -198,12 +207,33 @@ export function Lend({ wallet, agent, code }: { wallet: Wallet; agent: string; c
       {!agent && (
         <VStack gap={5}>
           <Stepper activeStep={0} orientation="vertical" label="出品の手順">
-            <Step step={0} label="貸し出したい PC で SolGPU エージェントを起動" description="手順は README の「GPU を貸す」にあります。">
-              <CodeBlock code={'cd agent\n.\\start.bat'} language="powershell" title="PowerShell" />
+            <Step
+              step={0}
+              label="GitHub からクローンして準備する（最初の 1 回だけ）"
+              description="Git と Python 3.10〜3.12、GPU の最新ドライバが必要です。setup が PyTorch などを入れます（数 GB）。GPU の種類に合わせて intel / nvidia / cpu を指定します。"
+            >
+              <VStack gap={3}>
+                <CodeBlock code={SETUP_WINDOWS} language="powershell" title="Windows（PowerShell）" />
+                <CodeBlock code={SETUP_LINUX} language="bash" title="Linux / macOS" />
+                <Text type="supporting" color="secondary">
+                  Windows ではインターネット公開用の cloudflared も入れてください（
+                  <Code>winget install --id Cloudflare.cloudflared -e</Code>）。Linux では setup.sh が自動で入れます。詳しくは{' '}
+                  <Link href={`${REPO_URL}#3-gpu-を貸す貸し手`} isExternalLink type="supporting">
+                    README の「GPU を貸す」
+                  </Link>
+                  。
+                </Text>
+              </VStack>
             </Step>
-            <Step step={1} label="ベンチマークで目安の価格が決まる" description="エージェントが GPU の性能を測り、1 分あたりの目安の価格を出します。" />
-            <Step step={2} label="ブラウザで出品ページが開く" description="価格は目安のままでも、自分で決めても出品できます。Phantom で「このウォレットで出品する」を承認します。" />
-            <Step step={3} label="利用後、代金があなたのウォレットに届く" description="借り手の代金はプログラムのエスクローに預けられ、利用時間の終了後に支払われます。" />
+            <Step step={1} label="エージェントを起動する" description="クローンした solgpu/agent フォルダで実行します。次回からはこれだけで受付を再開します。停止は Ctrl + C。">
+              <VStack gap={3}>
+                <CodeBlock code={'.\\start.bat'} language="powershell" title="Windows（PowerShell）" />
+                <CodeBlock code={'.venv/bin/python solgpu_agent.py --i-understand-the-risk'} language="bash" title="Linux / macOS" />
+              </VStack>
+            </Step>
+            <Step step={2} label="ベンチマークで目安の価格が決まる" description="エージェントが GPU の性能を測り、1 分あたりの目安の価格を出します。" />
+            <Step step={3} label="ブラウザで出品ページが開く" description="価格は目安のままでも、自分で決めても出品できます。Phantom で「このウォレットで出品する」を承認します。" />
+            <Step step={4} label="利用後、代金があなたのウォレットに届く" description="借り手の代金はプログラムのエスクローに預けられ、利用時間の終了後に支払われます。" />
           </Stepper>
           <Text type="supporting" color="secondary">
             目安の価格：計測した性能（TFLOPS）× {lamportsToSol(LAMPORTS_PER_TFLOPS_MINUTE)} SOL / 分（最低{' '}

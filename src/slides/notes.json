@@ -25,16 +25,21 @@
       "script": "開発は Claude Code に、プログラム、Web アプリ、エージェントの実装からデプロイまで任せました。画面が AI っぽくなったので Astryx を指定して作り直し、デプロイの容量不足はエラーを読ませて解決しました。開発期間は約 3 日です。"
     },
     {
-      "seconds": 30,
-      "script": "では V100 に戻ります。……4 枚の画像ができました。ノート PC では難しい画像生成が、借りた GPU で動きました。Solana Explorer を開くと、さきほどの預け入れの取引が記録されています。時間が終わると、代金は自動で貸し手に支払われます。\n[操作] Jupyter のタブ → 画像を見せる → マイレンタルの取引リンクから Explorer\n[動かないとき] このスライドの 4 枚（同じコード・同じシードで事前に生成）を見せて、同じ説明をする"
+      "seconds": 45,
+      "script": "では V100 に戻ります。……4 枚の画像ができました。ノート PC では難しい画像生成が、借りた GPU で動きました。Solana Explorer を開くと、さきほどの預け入れの取引が記録されています。時間が終わると、代金は自動で貸し手に支払われます。\n今後は、GPU を本当に使えたかの証明と、借り手のコードの隔離に取り組みます。ありがとうございました。\n[操作] 最後のスライドのまま Jupyter のタブ → 画像を見せる → マイレンタルの取引リンクから Explorer → スライドに戻って締める\n[動かないとき] Sorana発表資料/デモ/予備画像 の 4 枚（同じコード・シードで事前に生成）を開いて同じ説明をする"
     },
     {
-      "seconds": 15,
-      "script": "今後は、GPU を本当に使えたかの証明と、借り手のコードの隔離に取り組みます。ありがとうございました。"
+      "seconds": 0,
+      "script": "付録（投影しない）：想定Q&A"
     },
-    { "seconds": 0, "script": "付録（投影しない）：想定Q&A" },
-    { "seconds": 0, "script": "付録（投影しない）：想定Q&A" },
-    { "seconds": 0, "script": "付録（投影しない）：想定Q&A" }
+    {
+      "seconds": 0,
+      "script": "付録（投影しない）：想定Q&A"
+    },
+    {
+      "seconds": 0,
+      "script": "付録（投影しない）：想定Q&A"
+    }
   ],
   "en": [
     {
@@ -62,15 +67,20 @@
       "script": "We built SolGPU with Claude Code in about three days. At first, the screens looked generic. So we chose a design system called Astryx."
     },
     {
-      "seconds": 30,
-      "script": "Now, back to the V100. Here are four images. My laptop can't do this, but the rented GPU can. On Solana Explorer, we can see the payment. When time is up, the lender gets paid."
+      "seconds": 45,
+      "script": "Now, back to the V100. Here are four images. My laptop can't do this, but the rented GPU can. On Solana Explorer, we can see the payment. When time is up, the lender gets paid.\nNext, we want to prove the GPU was really used, and keep the lender's PC safe. Thank you!\n[Do] Jupyter tab → show images → Explorer → back to this slide"
     },
     {
-      "seconds": 15,
-      "script": "Next, we want to prove the GPU was really used, and keep the lender's PC safe. Thank you!"
+      "seconds": 0,
+      "script": "Appendix (not shown): Q&A"
     },
-    { "seconds": 0, "script": "Appendix (not shown): Q&A" },
-    { "seconds": 0, "script": "Appendix (not shown): Q&A" },
-    { "seconds": 0, "script": "Appendix (not shown): Q&A" }
+    {
+      "seconds": 0,
+      "script": "Appendix (not shown): Q&A"
+    },
+    {
+      "seconds": 0,
+      "script": "Appendix (not shown): Q&A"
+    }
   ]
 }
